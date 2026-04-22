@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import type { UserInfo, OrderSummary, OrderDetail } from '../types';
-import { listOrders, getOrder, updateOrderStatus, updateActualPrice } from '../api';
+import { listOrders, getOrder, updateOrderStatus, updateActualPrice, deleteOrder, assignHauler } from '../api';
 import './OrderList.css';
 
 interface Props {
   user: UserInfo;
+  onEditOrder: (order: OrderDetail) => void;
 }
 
 function statusClass(status: string): string {
@@ -20,12 +21,14 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export default function OrderList({ user }: Props) {
+export default function OrderList({ user, onEditOrder }: Props) {
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [assignCharId, setAssignCharId] = useState('');
 
-  const isPrivileged = user.role === 'jf_pilot' || user.role === 'admin';
+  const isPrivileged = user.role === 'hauler' || user.role === 'admin';
+  const isAdmin = user.role === 'admin';
 
   useEffect(() => { loadOrders(); }, []);
 
@@ -36,7 +39,11 @@ export default function OrderList({ user }: Props) {
   }
 
   async function selectOrder(id: number) {
-    try { setSelectedOrder(await getOrder(id)); } catch { /* ignore */ }
+    try {
+      const order = await getOrder(id);
+      setSelectedOrder(order);
+      setAssignCharId('');
+    } catch { /* ignore */ }
   }
 
   async function handleStatusUpdate(orderId: number, status: string) {
@@ -51,6 +58,30 @@ export default function OrderList({ user }: Props) {
     await updateActualPrice(itemId, num);
     if (selectedOrder) setSelectedOrder(await getOrder(selectedOrder.order_id));
   }
+
+  async function handleDelete(orderId: number) {
+    if (!confirm(`Delete order #${orderId}? This cannot be undone.`)) return;
+    try {
+      await deleteOrder(orderId);
+      setSelectedOrder(null);
+      await loadOrders();
+    } catch { /* ignore */ }
+  }
+
+  async function handleAssignHauler(orderId: number) {
+    const charId = parseInt(assignCharId);
+    if (isNaN(charId)) return;
+    try {
+      await assignHauler(orderId, charId);
+      setSelectedOrder(await getOrder(orderId));
+      setAssignCharId('');
+    } catch { /* ignore */ }
+  }
+
+  const canEditOrder = (order: OrderDetail) => {
+    return order.character_id === user.character_id
+      && (order.status === 'pending' || order.status === 'accepted');
+  };
 
   if (loading) return <div>Loading orders...</div>;
 
@@ -126,15 +157,36 @@ export default function OrderList({ user }: Props) {
             {selectedOrder.shopper_fee > 0 && <div><span>Shopper Fee:</span><span>{formatIsk(selectedOrder.shopper_fee)} ISK</span></div>}
           </div>
 
-          {isPrivileged && selectedOrder.status !== 'delivered' && selectedOrder.status !== 'cancelled' && (
-            <div className="status-actions">
-              <span>Update Status:</span>
-              {selectedOrder.status === 'pending' && <button className="status-btn accepted" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'accepted')}>Accept</button>}
-              {selectedOrder.status === 'accepted' && <button className="status-btn in-transit" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'in_transit')}>In Transit</button>}
-              {selectedOrder.status === 'in_transit' && <button className="status-btn delivered" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'delivered')}>Delivered</button>}
-              <button className="status-btn cancelled" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'cancelled')}>Cancel</button>
-            </div>
-          )}
+          <div className="detail-actions">
+            {isPrivileged && selectedOrder.status !== 'delivered' && selectedOrder.status !== 'cancelled' && (
+              <div className="status-actions">
+                <span>Update Status:</span>
+                {selectedOrder.status === 'pending' && <button className="status-btn accepted" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'accepted')}>Accept</button>}
+                {selectedOrder.status === 'accepted' && <button className="status-btn in-transit" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'in_transit')}>In Transit</button>}
+                {selectedOrder.status === 'in_transit' && <button className="status-btn delivered" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'delivered')}>Delivered</button>}
+                <button className="status-btn cancelled" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'cancelled')}>Cancel</button>
+              </div>
+            )}
+
+            {canEditOrder(selectedOrder) && (
+              <button className="edit-order-btn" onClick={() => onEditOrder(selectedOrder)}>Edit Order</button>
+            )}
+
+            {isAdmin && (
+              <div className="admin-actions">
+                <div className="assign-hauler">
+                  <input
+                    type="text"
+                    placeholder="Character ID"
+                    value={assignCharId}
+                    onChange={e => setAssignCharId(e.target.value)}
+                  />
+                  <button onClick={() => handleAssignHauler(selectedOrder.order_id)}>Assign Hauler</button>
+                </div>
+                <button className="delete-order-btn" onClick={() => handleDelete(selectedOrder.order_id)}>Delete Order</button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

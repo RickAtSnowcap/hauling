@@ -187,6 +187,88 @@ public sealed class OrderRepository
         return await cmd.ExecuteNonQueryAsync(ct) > 0;
     }
 
+    public async Task ReplaceOrderItemsAsync(long orderId, bool shopRequested, List<OrderItemInput> items,
+        decimal haulingRate, decimal shopperFeePct, CancellationToken ct)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        // Delete existing items
+        await using var delCmd = new NpgsqlCommand("DELETE FROM hauling.order_items WHERE order_id = @oid", conn, tx);
+        delCmd.Parameters.AddWithValue("oid", orderId);
+        await delCmd.ExecuteNonQueryAsync(ct);
+
+        // Insert new items and recalculate
+        decimal totalM3 = 0;
+        decimal totalEstimatedIsk = 0;
+        for (var i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            var lineM3 = item.VolumePerUnit * item.Quantity;
+            totalM3 += lineM3;
+            totalEstimatedIsk += item.EstimatedPrice * item.Quantity;
+
+            await using var itemCmd = new NpgsqlCommand(@"
+                INSERT INTO hauling.order_items (order_id, type_id, quantity, volume_per_unit, line_m3, estimated_price, sort_order)
+                VALUES (@oid, @tid, @qty, @vol, @lm3, @est, @srt)", conn, tx);
+            itemCmd.Parameters.AddWithValue("oid", orderId);
+            itemCmd.Parameters.AddWithValue("tid", item.TypeId);
+            itemCmd.Parameters.AddWithValue("qty", item.Quantity);
+            itemCmd.Parameters.AddWithValue("vol", item.VolumePerUnit);
+            itemCmd.Parameters.AddWithValue("lm3", lineM3);
+            itemCmd.Parameters.AddWithValue("est", item.EstimatedPrice);
+            itemCmd.Parameters.AddWithValue("srt", i);
+            await itemCmd.ExecuteNonQueryAsync(ct);
+        }
+
+        var haulingFee = totalM3 * haulingRate;
+        var shopperFee = shopRequested ? totalEstimatedIsk * (shopperFeePct / 100m) : 0;
+
+        await using var updateCmd = new NpgsqlCommand(@"
+            UPDATE hauling.orders SET shop_requested = @shop, total_m3 = @m3, total_estimated_isk = @isk,
+                hauling_fee = @hfee, shopper_fee = @sfee, updated_at = now()
+            WHERE order_id = @oid", conn, tx);
+        updateCmd.Parameters.AddWithValue("shop", shopRequested);
+        updateCmd.Parameters.AddWithValue("m3", totalM3);
+        updateCmd.Parameters.AddWithValue("isk", totalEstimatedIsk);
+        updateCmd.Parameters.AddWithValue("hfee", haulingFee);
+        updateCmd.Parameters.AddWithValue("sfee", shopperFee);
+        updateCmd.Parameters.AddWithValue("oid", orderId);
+        await updateCmd.ExecuteNonQueryAsync(ct);
+
+        await tx.CommitAsync(ct);
+    }
+
+    public async Task<bool> AssignHaulerAsync(long orderId, long characterId, CancellationToken ct)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = new NpgsqlCommand(
+            "UPDATE hauling.orders SET assigned_to = @cid, updated_at = now() WHERE order_id = @oid", conn);
+        cmd.Parameters.AddWithValue("cid", characterId);
+        cmd.Parameters.AddWithValue("oid", orderId);
+        return await cmd.ExecuteNonQueryAsync(ct) > 0;
+    }
+
+    public async Task<bool> DeleteOrderAsync(long orderId, CancellationToken ct)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        await using var itemsCmd = new NpgsqlCommand("DELETE FROM hauling.order_items WHERE order_id = @oid", conn, tx);
+        itemsCmd.Parameters.AddWithValue("oid", orderId);
+        await itemsCmd.ExecuteNonQueryAsync(ct);
+
+        await using var orderCmd = new NpgsqlCommand("DELETE FROM hauling.orders WHERE order_id = @oid", conn, tx);
+        orderCmd.Parameters.AddWithValue("oid", orderId);
+        var deleted = await orderCmd.ExecuteNonQueryAsync(ct) > 0;
+
+        await tx.CommitAsync(ct);
+        return deleted;
+    }
+
     public async Task RecalcTotalActualAsync(long orderId, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);

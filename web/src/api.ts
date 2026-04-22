@@ -91,3 +91,47 @@ export async function updateActualPrice(itemId: number, actualPrice: number): Pr
   });
   if (!resp.ok) throw new Error('Failed to update price');
 }
+
+export async function matchItems(names: string[]): Promise<ItemResult[]> {
+  const resp = await fetch(`${BASE}/api/items/match`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(names)
+  });
+  if (!resp.ok) return [];
+  return resp.json();
+}
+
+export async function deleteOrder(orderId: number): Promise<void> {
+  const resp = await fetch(`${BASE}/api/orders/${orderId}`, {
+    method: 'DELETE',
+    headers: authHeaders()
+  });
+  if (!resp.ok) throw new Error('Failed to delete order');
+}
+
+export async function updateOrderItems(orderId: number, shopRequested: boolean, items: OrderItemInput[]): Promise<void> {
+  const resp = await fetch(`${BASE}/api/orders/${orderId}/items`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      shop_requested: shopRequested,
+      items: items.map(i => ({
+        type_id: i.type_id,
+        quantity: i.quantity,
+        volume_per_unit: i.volume_per_unit,
+        estimated_price: i.estimated_price
+      }))
+    })
+  });
+  if (!resp.ok) throw new Error('Failed to update order');
+}
+
+export async function assignHauler(orderId: number, characterId: number): Promise<void> {
+  const resp = await fetch(`${BASE}/api/orders/${orderId}/assign`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ character_id: characterId })
+  });
+  if (!resp.ok) throw new Error('Failed to assign hauler');
+}

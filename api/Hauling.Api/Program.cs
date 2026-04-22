@@ -99,6 +99,13 @@ app.MapGet("/api/items/search", async (string q, int? limit, ItemRepository item
     return Results.Ok(results);
 });
 
+// POST /api/items/match — bulk match item names against eve_types
+app.MapPost("/api/items/match", async (List<string> names, ItemRepository items, CancellationToken ct) =>
+{
+    var results = await items.MatchNamesAsync(names, ct);
+    return Results.Ok(results);
+});
+
 // GET /api/items/{typeId}/price — get Jita lowest sell price
 app.MapGet("/api/items/{typeId:int}/price", async (int typeId, EsiMarketService esi, CancellationToken ct) =>
 {
@@ -137,7 +144,7 @@ app.MapPost("/api/orders", async (HttpRequest request, CreateOrderRequest body, 
     return Results.Created($"/api/orders/{orderId}", new OrderCreatedResponse { OrderId = orderId });
 });
 
-// GET /api/orders — list orders (members see own, jf_pilot/admin see all)
+// GET /api/orders — list orders (members see own, hauler/admin see all)
 app.MapGet("/api/orders", async (HttpRequest request, AuthService auth, OrderRepository orders, int? limit, int? offset, CancellationToken ct) =>
 {
     var claims = GetClaims(request, auth);
@@ -164,14 +171,14 @@ app.MapGet("/api/orders/{id:long}", async (long id, HttpRequest request, AuthSer
     return Results.Ok(order);
 });
 
-// PUT /api/orders/{id}/status — update order status (jf_pilot/admin only)
+// PUT /api/orders/{id}/status — update order status (hauler/admin only)
 app.MapPut("/api/orders/{id:long}/status", async (long id, HttpRequest request, UpdateStatusRequest body,
     AuthService auth, OrderRepository orders, CancellationToken ct) =>
 {
     var claims = GetClaims(request, auth);
     if (claims == null) return Results.Unauthorized();
     if (claims.Role == "member")
-        return Results.Json(new ErrorResponse { Error = "Only JF pilots and admins can update order status" },
+        return Results.Json(new ErrorResponse { Error = "Only haulers and admins can update order status" },
             HaulingJsonContext.Default.ErrorResponse, statusCode: 403);
 
     var validStatuses = new[] { "pending", "accepted", "in_transit", "delivered", "cancelled" };
@@ -183,14 +190,80 @@ app.MapPut("/api/orders/{id:long}/status", async (long id, HttpRequest request, 
     return updated ? Results.Ok(new StatusResponse { OrderId = id, Status = body.Status }) : Results.NotFound();
 });
 
-// PUT /api/orders/items/{itemId}/actual-price — set actual price (jf_pilot/admin only)
+// PUT /api/orders/{id}/items — edit order line items (member own order while pending/accepted, or admin)
+app.MapPut("/api/orders/{id:long}/items", async (long id, HttpRequest request, CreateOrderRequest body,
+    AuthService auth, OrderRepository orders, UserRepository users, CancellationToken ct) =>
+{
+    var claims = GetClaims(request, auth);
+    if (claims == null) return Results.Unauthorized();
+
+    var order = await orders.GetOrderAsync(id, ct);
+    if (order == null) return Results.NotFound();
+
+    // Members can edit their own orders while pending/accepted
+    // Admins can edit any order that's not delivered
+    if (claims.Role == "member")
+    {
+        if (order.CharacterId != claims.CharacterId)
+            return Results.Json(new ErrorResponse { Error = "Access denied" }, HaulingJsonContext.Default.ErrorResponse, statusCode: 403);
+        if (order.Status != "pending" && order.Status != "accepted")
+            return Results.Json(new ErrorResponse { Error = "Cannot edit order once in transit" }, HaulingJsonContext.Default.ErrorResponse, statusCode: 400);
+    }
+    else if (claims.Role == "hauler")
+    {
+        return Results.Json(new ErrorResponse { Error = "Haulers cannot edit order items" }, HaulingJsonContext.Default.ErrorResponse, statusCode: 403);
+    }
+    // admin can edit
+
+    var haulingRate = decimal.Parse(await users.GetConfigAsync("hauling_rate_per_m3", ct));
+    var shopperPct = decimal.Parse(await users.GetConfigAsync("shopper_fee_pct", ct));
+
+    var itemInputs = body.Items.Select(i => new OrderItemInput
+    {
+        TypeId = i.TypeId,
+        Quantity = i.Quantity,
+        VolumePerUnit = i.VolumePerUnit,
+        EstimatedPrice = i.EstimatedPrice
+    }).ToList();
+
+    await orders.ReplaceOrderItemsAsync(id, body.ShopRequested, itemInputs, haulingRate, shopperPct, ct);
+    return Results.Ok(new HealthResponse { Status = "updated" });
+});
+
+// PUT /api/orders/{id}/assign — assign hauler (admin only)
+app.MapPut("/api/orders/{id:long}/assign", async (long id, HttpRequest request, AssignRequest body,
+    AuthService auth, OrderRepository orders, CancellationToken ct) =>
+{
+    var claims = GetClaims(request, auth);
+    if (claims == null) return Results.Unauthorized();
+    if (claims.Role != "admin")
+        return Results.Json(new ErrorResponse { Error = "Admin only" }, HaulingJsonContext.Default.ErrorResponse, statusCode: 403);
+
+    var updated = await orders.AssignHaulerAsync(id, body.CharacterId, ct);
+    return updated ? Results.Ok(new HealthResponse { Status = "assigned" }) : Results.NotFound();
+});
+
+// DELETE /api/orders/{id} — delete order (admin only)
+app.MapDelete("/api/orders/{id:long}", async (long id, HttpRequest request, AuthService auth,
+    OrderRepository orders, CancellationToken ct) =>
+{
+    var claims = GetClaims(request, auth);
+    if (claims == null) return Results.Unauthorized();
+    if (claims.Role != "admin")
+        return Results.Json(new ErrorResponse { Error = "Admin only" }, HaulingJsonContext.Default.ErrorResponse, statusCode: 403);
+
+    var deleted = await orders.DeleteOrderAsync(id, ct);
+    return deleted ? Results.Ok(new HealthResponse { Status = "deleted" }) : Results.NotFound();
+});
+
+// PUT /api/orders/items/{itemId}/actual-price — set actual price (hauler/admin only)
 app.MapPut("/api/orders/items/{itemId:long}/actual-price", async (long itemId, HttpRequest request,
     UpdatePriceRequest body, AuthService auth, OrderRepository orders, CancellationToken ct) =>
 {
     var claims = GetClaims(request, auth);
     if (claims == null) return Results.Unauthorized();
     if (claims.Role == "member")
-        return Results.Json(new ErrorResponse { Error = "Only JF pilots and admins can set actual prices" },
+        return Results.Json(new ErrorResponse { Error = "Only haulers and admins can set actual prices" },
             HaulingJsonContext.Default.ErrorResponse, statusCode: 403);
 
     var updated = await orders.UpdateActualPriceAsync(itemId, body.ActualPrice, ct);
@@ -228,6 +301,7 @@ public sealed class CreateOrderItemRequest
 }
 public sealed class UpdateStatusRequest { public string Status { get; set; } = ""; }
 public sealed class UpdatePriceRequest { public decimal ActualPrice { get; set; } }
+public sealed class AssignRequest { public long CharacterId { get; set; } }
 
 // Additional response types
 public sealed class PriceResponse { public int TypeId { get; set; } public decimal JitaSellPrice { get; set; } }
@@ -247,6 +321,8 @@ public sealed class ConfigResponse { public decimal HaulingRatePerM3 { get; set;
 [JsonSerializable(typeof(List<CreateOrderItemRequest>))]
 [JsonSerializable(typeof(UpdateStatusRequest))]
 [JsonSerializable(typeof(UpdatePriceRequest))]
+[JsonSerializable(typeof(AssignRequest))]
+[JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(OrderCreatedResponse))]
 [JsonSerializable(typeof(StatusResponse))]
 [JsonSerializable(typeof(ConfigResponse))]

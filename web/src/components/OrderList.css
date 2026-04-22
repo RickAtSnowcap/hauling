@@ -164,3 +164,76 @@
 .status-btn.delivered { background: var(--status-delivered); }
 .status-btn.cancelled { background: var(--status-cancelled); }
 .status-btn:hover { opacity: 0.85; }
+
+.detail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.edit-order-btn {
+  background: var(--status-accepted);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-family: 'Open Sans', sans-serif;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.edit-order-btn:hover { opacity: 0.85; }
+
+.admin-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.assign-hauler {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.assign-hauler input {
+  width: 120px;
+  padding: 6px 10px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: 'Open Sans', sans-serif;
+  font-size: 0.85rem;
+}
+
+.assign-hauler button {
+  background: var(--status-in-transit);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-family: 'Open Sans', sans-serif;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.assign-hauler button:hover { opacity: 0.85; }
+
+.delete-order-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-family: 'Open Sans', sans-serif;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.delete-order-btn:hover { background: var(--accent-hover); }
