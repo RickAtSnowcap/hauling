@@ -193,15 +193,16 @@ public sealed class OrderRepository
         return await cmd.ExecuteNonQueryAsync(ct) > 0;
     }
 
-    public async Task<bool> UpdateActualPriceAsync(long itemId, decimal actualPrice, CancellationToken ct)
+    public async Task<long?> UpdateActualPriceAsync(long itemId, decimal actualPrice, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var cmd = new NpgsqlCommand(
-            "UPDATE hauling.order_items SET actual_price = @price WHERE item_id = @id", conn);
+            "UPDATE hauling.order_items SET actual_price = @price WHERE item_id = @id RETURNING order_id", conn);
         cmd.Parameters.AddWithValue("price", actualPrice);
         cmd.Parameters.AddWithValue("id", itemId);
-        return await cmd.ExecuteNonQueryAsync(ct) > 0;
+        var result = await cmd.ExecuteScalarAsync(ct);
+        return result == null ? null : Convert.ToInt64(result);
     }
 
     public async Task ReplaceOrderItemsAsync(long orderId, bool shopRequested, List<OrderItemInput> items,

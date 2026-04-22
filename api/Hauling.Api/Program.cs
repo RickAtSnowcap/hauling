@@ -288,8 +288,10 @@ app.MapPut("/api/orders/items/{itemId:long}/actual-price", async (long itemId, H
         return Results.Json(new ErrorResponse { Error = "Only haulers and admins can set actual prices" },
             HaulingJsonContext.Default.ErrorResponse, statusCode: 403);
 
-    var updated = await orders.UpdateActualPriceAsync(itemId, body.ActualPrice, ct);
-    return updated ? Results.Ok(new HealthResponse { Status = "updated" }) : Results.NotFound();
+    var orderId = await orders.UpdateActualPriceAsync(itemId, body.ActualPrice, ct);
+    if (orderId == null) return Results.NotFound();
+    await orders.RecalcTotalActualAsync(orderId.Value, ct);
+    return Results.Ok(new HealthResponse { Status = "updated" });
 });
 
 // GET /api/config — get fee rates (public for display)
