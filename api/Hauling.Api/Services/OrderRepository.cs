@@ -291,12 +291,26 @@ public sealed class OrderRepository
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
+
+        // Get shopper fee percentage from config
+        await using var cfgCmd = new NpgsqlCommand("SELECT value FROM hauling.config WHERE key = 'shopper_fee_pct'", conn);
+        var pctStr = (await cfgCmd.ExecuteScalarAsync(ct))?.ToString() ?? "10";
+        var shopperPct = decimal.Parse(pctStr);
+
         await using var cmd = new NpgsqlCommand(@"
-            UPDATE hauling.orders SET total_actual_isk = (
-                SELECT SUM(actual_price * quantity) FROM hauling.order_items
+            WITH actuals AS (
+                SELECT COALESCE(SUM(actual_price * quantity), 0) AS total_actual
+                FROM hauling.order_items
                 WHERE order_id = @oid AND actual_price IS NOT NULL
-            ), updated_at = now() WHERE order_id = @oid", conn);
+            )
+            UPDATE hauling.orders SET
+                total_actual_isk = actuals.total_actual,
+                shopper_fee = CASE WHEN shop_requested THEN actuals.total_actual * @pct / 100 ELSE 0 END,
+                updated_at = now()
+            FROM actuals
+            WHERE order_id = @oid", conn);
         cmd.Parameters.AddWithValue("oid", orderId);
+        cmd.Parameters.AddWithValue("pct", shopperPct);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 }
