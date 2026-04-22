@@ -88,6 +88,27 @@
 .import-btn:hover:not(:disabled) { background: var(--accent-hover); }
 .import-btn:disabled { opacity: 0.4; cursor: default; }
 
+.fit-copies {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  margin-right: 12px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.fit-copies input {
+  width: 60px;
+  padding: 6px 8px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: 'Open Sans', sans-serif;
+  font-size: 0.9rem;
+}
+
 .editing-banner {
   background: rgba(52, 152, 219, 0.15);
   border: 1px solid #3498db;

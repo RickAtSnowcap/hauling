@@ -21,6 +21,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
   const [error, setError] = useState('');
   const [inputMode, setInputMode] = useState<'search' | 'fit' | 'inventory'>('search');
   const [pasteText, setPasteText] = useState('');
+  const [fitCopies, setFitCopies] = useState(1);
   const [importing, setImporting] = useState(false);
   const [unmatchedItems, setUnmatchedItems] = useState<string[]>([]);
   const searchRef = useRef<HTMLDivElement>(null);
@@ -84,9 +85,11 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
     setUnmatchedItems([]);
 
     try {
-      const parsed = inputMode === 'fit'
+      const raw = inputMode === 'fit'
         ? parsePyfaFit(pasteText)
         : parseContainerContents(pasteText);
+      const multiplier = inputMode === 'fit' ? fitCopies : 1;
+      const parsed = raw.map(p => ({ ...p, quantity: p.quantity * multiplier }));
 
       if (parsed.length === 0) {
         setError('No items found in pasted text.');
@@ -268,6 +271,12 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
             value={pasteText}
             onChange={e => setPasteText(e.target.value)}
           />
+          {inputMode === 'fit' && (
+            <div className="fit-copies">
+              <label>Copies:</label>
+              <input type="number" min={1} value={fitCopies} onChange={e => setFitCopies(Math.max(1, parseInt(e.target.value) || 1))} />
+            </div>
+          )}
           <button className="import-btn" onClick={handleImport} disabled={importing || !pasteText.trim()}>
             {importing ? 'Importing...' : 'Import'}
           </button>
