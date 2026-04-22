@@ -159,6 +159,7 @@
   color: white;
 }
 
+.status-btn.pending { background: var(--status-pending); }
 .status-btn.accepted { background: var(--status-accepted); }
 .status-btn.in-transit { background: var(--status-in-transit); }
 .status-btn.delivered { background: var(--status-delivered); }

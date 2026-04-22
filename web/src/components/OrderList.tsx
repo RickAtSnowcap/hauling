@@ -158,13 +158,14 @@ export default function OrderList({ user, onEditOrder }: Props) {
           </div>
 
           <div className="detail-actions">
-            {isPrivileged && selectedOrder.status !== 'delivered' && selectedOrder.status !== 'cancelled' && (
+            {isPrivileged && (
               <div className="status-actions">
                 <span>Update Status:</span>
-                {selectedOrder.status === 'pending' && <button className="status-btn accepted" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'accepted')}>Accept</button>}
-                {selectedOrder.status === 'accepted' && <button className="status-btn in-transit" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'in_transit')}>In Transit</button>}
-                {selectedOrder.status === 'in_transit' && <button className="status-btn delivered" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'delivered')}>Delivered</button>}
-                <button className="status-btn cancelled" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'cancelled')}>Cancel</button>
+                {selectedOrder.status !== 'pending' && <button className="status-btn pending" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'pending')}>Pending</button>}
+                {selectedOrder.status !== 'accepted' && <button className="status-btn accepted" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'accepted')}>Accept</button>}
+                {selectedOrder.status !== 'in_transit' && <button className="status-btn in-transit" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'in_transit')}>In Transit</button>}
+                {selectedOrder.status !== 'delivered' && <button className="status-btn delivered" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'delivered')}>Delivered</button>}
+                {selectedOrder.status !== 'cancelled' && <button className="status-btn cancelled" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'cancelled')}>Cancel</button>}
               </div>
             )}
 
