@@ -214,7 +214,7 @@
 }
 
 .order-table input[type="number"] {
-  width: 70px;
+  width: 120px;
   padding: 6px 8px;
   background: var(--bg-input);
   color: var(--text-primary);
@@ -239,6 +239,11 @@
   border-radius: var(--border-radius);
   padding: 16px 20px;
   margin-bottom: 20px;
+}
+
+.total-row.over-capacity {
+  color: var(--accent);
+  font-weight: 700;
 }
 
 .total-row {

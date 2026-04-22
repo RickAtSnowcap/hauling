@@ -143,6 +143,7 @@ app.MapPost("/api/orders", async (HttpRequest request, CreateOrderRequest body, 
 
     var haulingRate = decimal.Parse(await users.GetConfigAsync("hauling_rate_per_m3", ct));
     var shopperPct = decimal.Parse(await users.GetConfigAsync("shopper_fee_pct", ct));
+    var maxM3 = decimal.Parse(await users.GetConfigAsync("max_order_m3", ct));
 
     var items = body.Items.Select(i => new OrderItemInput
     {
@@ -151,6 +152,11 @@ app.MapPost("/api/orders", async (HttpRequest request, CreateOrderRequest body, 
         VolumePerUnit = i.VolumePerUnit,
         EstimatedPrice = i.EstimatedPrice
     }).ToList();
+
+    // Check total m3 against max
+    var totalM3 = items.Sum(i => i.VolumePerUnit * i.Quantity);
+    if (totalM3 > maxM3)
+        return Results.BadRequest(new ErrorResponse { Error = $"Order exceeds maximum capacity of {maxM3:N0} m³ ({totalM3:N2} m³ requested)" });
 
     var orderId = await orders.CreateOrderAsync(claims.CharacterId, body.ShopRequested, items, haulingRate, shopperPct, ct);
     return Results.Created($"/api/orders/{orderId}", new OrderCreatedResponse { OrderId = orderId });
@@ -291,7 +297,8 @@ app.MapGet("/api/config", async (UserRepository users, CancellationToken ct) =>
 {
     var haulingRate = await users.GetConfigAsync("hauling_rate_per_m3", ct);
     var shopperPct = await users.GetConfigAsync("shopper_fee_pct", ct);
-    return Results.Ok(new ConfigResponse { HaulingRatePerM3 = decimal.Parse(haulingRate), ShopperFeePct = decimal.Parse(shopperPct) });
+    var maxM3 = await users.GetConfigAsync("max_order_m3", ct);
+    return Results.Ok(new ConfigResponse { HaulingRatePerM3 = decimal.Parse(haulingRate), ShopperFeePct = decimal.Parse(shopperPct), MaxOrderM3 = decimal.Parse(maxM3) });
 });
 
 app.Run();
@@ -323,7 +330,7 @@ public sealed class AssignRequest { public long CharacterId { get; set; } }
 public sealed class PriceResponse { public int TypeId { get; set; } public decimal JitaSellPrice { get; set; } }
 public sealed class OrderCreatedResponse { public long OrderId { get; set; } }
 public sealed class StatusResponse { public long OrderId { get; set; } public string Status { get; set; } = ""; }
-public sealed class ConfigResponse { public decimal HaulingRatePerM3 { get; set; } public decimal ShopperFeePct { get; set; } }
+public sealed class ConfigResponse { public decimal HaulingRatePerM3 { get; set; } public decimal ShopperFeePct { get; set; } public decimal MaxOrderM3 { get; set; } }
 
 // AOT JSON source generator
 [JsonSerializable(typeof(HealthResponse))]

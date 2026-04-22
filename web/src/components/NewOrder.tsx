@@ -163,9 +163,11 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
   const haulingFee = config ? totalM3 * config.hauling_rate_per_m3 : 0;
   const shopperFee = shopRequested && config ? totalEstIsk * (config.shopper_fee_pct / 100) : 0;
   const grandTotal = totalEstIsk + haulingFee + shopperFee;
+  const maxM3 = config?.max_order_m3 ?? 300000;
+  const overCapacity = totalM3 > maxM3;
 
   async function handleSubmit() {
-    if (items.length === 0) return;
+    if (items.length === 0 || overCapacity) return;
     setSubmitting(true);
     setError('');
     try {
@@ -305,16 +307,17 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
           </table>
 
           <div className="order-totals">
-            <div className="total-row"><span>Total Volume:</span><span>{formatM3(totalM3)} m3</span></div>
+            <div className={`total-row ${overCapacity ? 'over-capacity' : ''}`}><span>Total Volume:</span><span>{formatM3(totalM3)} / {formatM3(maxM3)} m³</span></div>
             <div className="total-row"><span>Estimated Item Cost:</span><span>{formatIsk(totalEstIsk)} ISK</span></div>
             <div className="total-row"><span>Hauling Fee ({config?.hauling_rate_per_m3 ?? 0} ISK/m3):</span><span>{formatIsk(haulingFee)} ISK</span></div>
             {shopRequested && <div className="total-row"><span>Shopper Fee ({config?.shopper_fee_pct ?? 0}%):</span><span>{formatIsk(shopperFee)} ISK</span></div>}
             <div className="total-row grand-total"><span>Grand Total:</span><span>{formatIsk(grandTotal)} ISK</span></div>
           </div>
 
+          {overCapacity && <div className="order-error">Order exceeds maximum JF cargo capacity of {formatM3(maxM3)} m³. Remove items or reduce quantities.</div>}
           {error && <div className="order-error">{error}</div>}
 
-          <button className="submit-btn" onClick={handleSubmit} disabled={submitting || items.length === 0}>
+          <button className="submit-btn" onClick={handleSubmit} disabled={submitting || items.length === 0 || overCapacity}>
             {submitting ? 'Submitting...' : isEditing ? 'Update Order' : 'Submit Order'}
           </button>
         </>

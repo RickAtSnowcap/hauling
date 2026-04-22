@@ -12,6 +12,7 @@ export interface PriceResponse {
 export interface ConfigResponse {
   hauling_rate_per_m3: number;
   shopper_fee_pct: number;
+  max_order_m3: number;
 }
 
 export interface OrderItemInput {
