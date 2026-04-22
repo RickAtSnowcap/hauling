@@ -35,6 +35,8 @@ export interface OrderSummary {
   shopper_fee: number;
   created_at: string;
   updated_at: string;
+  assigned_to: number | null;
+  assigned_to_name: string | null;
 }
 
 export interface OrderItemDetail {
@@ -49,7 +51,6 @@ export interface OrderItemDetail {
 }
 
 export interface OrderDetail extends OrderSummary {
-  assigned_to: number | null;
   items: OrderItemDetail[];
 }
 

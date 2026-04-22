@@ -68,9 +68,10 @@ public sealed class OrderRepository
 
         var sql = @"SELECT o.order_id, o.character_id, u.character_name, o.status, o.shop_requested,
                            o.total_m3, o.total_estimated_isk, o.total_actual_isk, o.hauling_fee, o.shopper_fee,
-                           o.created_at, o.updated_at
+                           o.created_at, o.updated_at, o.assigned_to, h.character_name
                     FROM hauling.orders o
-                    JOIN hauling.users u ON o.character_id = u.character_id";
+                    JOIN hauling.users u ON o.character_id = u.character_id
+                    LEFT JOIN hauling.users h ON o.assigned_to = h.character_id";
         if (characterId.HasValue) sql += " WHERE o.character_id = @cid";
         sql += " ORDER BY o.created_at DESC LIMIT @lim OFFSET @off";
 
@@ -96,7 +97,9 @@ public sealed class OrderRepository
                 HaulingFee = reader.GetDecimal(8),
                 ShopperFee = reader.GetDecimal(9),
                 CreatedAt = reader.GetDateTime(10),
-                UpdatedAt = reader.GetDateTime(11)
+                UpdatedAt = reader.GetDateTime(11),
+                AssignedTo = reader.IsDBNull(12) ? null : reader.GetInt64(12),
+                AssignedToName = reader.IsDBNull(13) ? null : reader.GetString(13)
             });
         }
         return results;
@@ -110,9 +113,10 @@ public sealed class OrderRepository
         await using var orderCmd = new NpgsqlCommand(@"
             SELECT o.order_id, o.character_id, u.character_name, o.status, o.shop_requested,
                    o.total_m3, o.total_estimated_isk, o.total_actual_isk, o.hauling_fee, o.shopper_fee,
-                   o.assigned_to, o.created_at, o.updated_at
+                   o.assigned_to, o.created_at, o.updated_at, h.character_name
             FROM hauling.orders o
             JOIN hauling.users u ON o.character_id = u.character_id
+            LEFT JOIN hauling.users h ON o.assigned_to = h.character_id
             WHERE o.order_id = @oid", conn);
         orderCmd.Parameters.AddWithValue("oid", orderId);
         await using var orderReader = await orderCmd.ExecuteReaderAsync(ct);
@@ -132,7 +136,8 @@ public sealed class OrderRepository
             ShopperFee = orderReader.GetDecimal(9),
             AssignedTo = orderReader.IsDBNull(10) ? null : orderReader.GetInt64(10),
             CreatedAt = orderReader.GetDateTime(11),
-            UpdatedAt = orderReader.GetDateTime(12)
+            UpdatedAt = orderReader.GetDateTime(12),
+            AssignedToName = orderReader.IsDBNull(13) ? null : orderReader.GetString(13)
         };
         await orderReader.CloseAsync();
 
@@ -317,11 +322,12 @@ public class OrderSummary
     public decimal ShopperFee { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public long? AssignedTo { get; set; }
+    public string? AssignedToName { get; set; }
 }
 
 public sealed class OrderDetail : OrderSummary
 {
-    public long? AssignedTo { get; set; }
     public List<OrderItemDetail> Items { get; set; } = new();
 }
 

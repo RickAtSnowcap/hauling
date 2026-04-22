@@ -107,6 +107,7 @@ export default function OrderList({ user, onEditOrder }: Props) {
               {isPrivileged && <span>{order.character_name}</span>}
               <span>{order.total_m3.toFixed(0)} m3</span>
               <span>{order.shop_requested ? 'Shop+Haul' : 'Haul Only'}</span>
+              {order.assigned_to_name && <span>Hauler: {order.assigned_to_name}</span>}
             </div>
             <div className="order-card-date">{formatDate(order.created_at)}</div>
           </div>
@@ -122,6 +123,7 @@ export default function OrderList({ user, onEditOrder }: Props) {
           <div className="detail-info">
             <span>By: {selectedOrder.character_name}</span>
             <span>Type: {selectedOrder.shop_requested ? 'Shop + Haul' : 'Haul Only'}</span>
+            {selectedOrder.assigned_to_name && <span>Hauler: {selectedOrder.assigned_to_name}</span>}
             <span>Created: {formatDate(selectedOrder.created_at)}</span>
           </div>
 
