@@ -6,3 +6,64 @@
   color: var(--text-secondary);
   font-size: 1.2rem;
 }
+
+.denied-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+
+.denied-card {
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: var(--border-radius);
+  padding: 48px;
+  text-align: center;
+  max-width: 480px;
+  width: 100%;
+}
+
+.denied-card h1 {
+  font-size: 1.8rem;
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+
+.denied-char {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 20px;
+}
+
+.denied-msg {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.denied-hint {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-bottom: 28px;
+  font-style: italic;
+}
+
+.denied-btn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  padding: 10px 24px;
+  font-family: 'Open Sans', sans-serif;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.denied-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}

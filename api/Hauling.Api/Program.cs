@@ -57,8 +57,7 @@ app.MapGet("/callback", async (string? code, string? state, EveSsoService sso, U
     var requiredAlliance = await repo.GetConfigAsync("alliance_id", ct);
     if (string.IsNullOrEmpty(requiredAlliance) || charInfo.AllianceId?.ToString() != requiredAlliance)
     {
-        return Results.Json(new ErrorResponse { Error = $"Access restricted to alliance members. Character {charInfo.CharacterName} is not in the required alliance." },
-            HaulingJsonContext.Default.ErrorResponse, statusCode: 403);
+        return Results.Redirect($"/hauling/?denied={Uri.EscapeDataString(charInfo.CharacterName)}");
     }
 
     // Upsert user
