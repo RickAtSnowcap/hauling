@@ -16,7 +16,7 @@ function statusClass(status: string): string {
 
 function formatIsk(n: number | null): string {
   if (n === null) return '--';
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
 function formatDate(iso: string): string {
