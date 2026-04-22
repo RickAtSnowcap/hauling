@@ -47,7 +47,7 @@ export default function OrderList({ user, onEditOrder }: Props) {
     try {
       const order = await getOrder(id);
       setSelectedOrder(order);
-      setAssignCharId('');
+      setAssignCharId(order.assigned_to ? String(order.assigned_to) : '');
     } catch { /* ignore */ }
   }
 
