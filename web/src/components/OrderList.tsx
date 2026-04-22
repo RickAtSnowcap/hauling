@@ -90,6 +90,7 @@ export default function OrderList({ user, onEditOrder }: Props) {
   }
 
   const canEditOrder = (order: OrderDetail) => {
+    if (isAdmin) return order.status !== 'delivered';
     return order.character_id === user.character_id
       && (order.status === 'pending' || order.status === 'accepted');
   };
