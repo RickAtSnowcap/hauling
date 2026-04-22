@@ -176,6 +176,18 @@ public sealed class OrderRepository
         return await cmd.ExecuteNonQueryAsync(ct) > 0;
     }
 
+    public async Task<bool> UpdateStatusOnlyAsync(long orderId, string status, CancellationToken ct)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = new NpgsqlCommand(@"
+            UPDATE hauling.orders SET status = @st, updated_at = now()
+            WHERE order_id = @oid", conn);
+        cmd.Parameters.AddWithValue("st", status);
+        cmd.Parameters.AddWithValue("oid", orderId);
+        return await cmd.ExecuteNonQueryAsync(ct) > 0;
+    }
+
     public async Task<bool> UpdateActualPriceAsync(long itemId, decimal actualPrice, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);

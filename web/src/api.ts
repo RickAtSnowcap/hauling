@@ -127,6 +127,18 @@ export async function updateOrderItems(orderId: number, shopRequested: boolean, 
   if (!resp.ok) throw new Error('Failed to update order');
 }
 
+export interface HaulerInfo {
+  character_id: number;
+  character_name: string;
+  role: string;
+}
+
+export async function listHaulers(): Promise<HaulerInfo[]> {
+  const resp = await fetch(`${BASE}/api/haulers`, { headers: authHeaders() });
+  if (!resp.ok) return [];
+  return resp.json();
+}
+
 export async function assignHauler(orderId: number, characterId: number): Promise<void> {
   const resp = await fetch(`${BASE}/api/orders/${orderId}/assign`, {
     method: 'PUT',

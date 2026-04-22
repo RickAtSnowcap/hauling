@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { UserInfo, OrderSummary, OrderDetail } from '../types';
-import { listOrders, getOrder, updateOrderStatus, updateActualPrice, deleteOrder, assignHauler } from '../api';
+import { listOrders, getOrder, updateOrderStatus, updateActualPrice, deleteOrder, assignHauler, listHaulers } from '../api';
+import type { HaulerInfo } from '../api';
 import './OrderList.css';
 
 interface Props {
@@ -26,11 +27,15 @@ export default function OrderList({ user, onEditOrder }: Props) {
   const [selectedOrder, setSelectedOrder] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [assignCharId, setAssignCharId] = useState('');
+  const [haulers, setHaulers] = useState<HaulerInfo[]>([]);
 
   const isPrivileged = user.role === 'hauler' || user.role === 'admin';
   const isAdmin = user.role === 'admin';
 
-  useEffect(() => { loadOrders(); }, []);
+  useEffect(() => {
+    loadOrders();
+    if (isAdmin) listHaulers().then(setHaulers);
+  }, []);
 
   async function loadOrders() {
     setLoading(true);
@@ -176,13 +181,15 @@ export default function OrderList({ user, onEditOrder }: Props) {
             {isAdmin && (
               <div className="admin-actions">
                 <div className="assign-hauler">
-                  <input
-                    type="text"
-                    placeholder="Character ID"
-                    value={assignCharId}
-                    onChange={e => setAssignCharId(e.target.value)}
-                  />
-                  <button onClick={() => handleAssignHauler(selectedOrder.order_id)}>Assign Hauler</button>
+                  <select value={assignCharId} onChange={e => setAssignCharId(e.target.value)}>
+                    <option value="">— Assign Hauler —</option>
+                    {haulers.map(h => (
+                      <option key={h.character_id} value={h.character_id}>
+                        {h.character_name} ({h.role})
+                      </option>
+                    ))}
+                  </select>
+                  <button onClick={() => handleAssignHauler(selectedOrder.order_id)} disabled={!assignCharId}>Assign</button>
                 </div>
                 <button className="delete-order-btn" onClick={() => handleDelete(selectedOrder.order_id)}>Delete Order</button>
               </div>

@@ -59,6 +59,27 @@ public sealed class UserRepository
         };
     }
 
+    public async Task<List<HaulerInfo>> ListHaulersAsync(CancellationToken ct)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = new NpgsqlCommand(
+            "SELECT character_id, character_name, role FROM hauling.users WHERE role IN ('hauler', 'admin') ORDER BY character_name", conn);
+
+        var results = new List<HaulerInfo>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            results.Add(new HaulerInfo
+            {
+                CharacterId = reader.GetInt64(0),
+                CharacterName = reader.GetString(1),
+                Role = reader.GetString(2)
+            });
+        }
+        return results;
+    }
+
     public async Task<string> GetConfigAsync(string key, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
@@ -68,6 +89,13 @@ public sealed class UserRepository
         var result = await cmd.ExecuteScalarAsync(ct);
         return result?.ToString() ?? "";
     }
+}
+
+public sealed class HaulerInfo
+{
+    public long CharacterId { get; set; }
+    public string CharacterName { get; set; } = "";
+    public string Role { get; set; } = "";
 }
 
 public sealed class UserRecord

@@ -88,6 +88,18 @@ app.MapGet("/api/auth/me", (HttpRequest request, AuthService auth) =>
     });
 });
 
+// GET /api/haulers — list haulers and admins (for assign dropdown)
+app.MapGet("/api/haulers", async (HttpRequest request, AuthService auth, UserRepository users, CancellationToken ct) =>
+{
+    var claims = GetClaims(request, auth);
+    if (claims == null) return Results.Unauthorized();
+    if (claims.Role != "admin")
+        return Results.Json(new ErrorResponse { Error = "Admin only" }, HaulingJsonContext.Default.ErrorResponse, statusCode: 403);
+
+    var haulers = await users.ListHaulersAsync(ct);
+    return Results.Ok(haulers);
+});
+
 // --- Item Search ---
 
 // GET /api/items/search?q=tritanium&limit=20
@@ -185,8 +197,12 @@ app.MapPut("/api/orders/{id:long}/status", async (long id, HttpRequest request, 
     if (!validStatuses.Contains(body.Status))
         return Results.BadRequest(new ErrorResponse { Error = $"Invalid status. Must be one of: {string.Join(", ", validStatuses)}" });
 
-    long? assignedTo = body.Status == "accepted" ? claims.CharacterId : null;
-    var updated = await orders.UpdateStatusAsync(id, body.Status, assignedTo, ct);
+    // Auto-assign hauler on accept, leave assigned_to unchanged for other transitions
+    if (body.Status == "accepted")
+    {
+        await orders.AssignHaulerAsync(id, claims.CharacterId, ct);
+    }
+    var updated = await orders.UpdateStatusOnlyAsync(id, body.Status, ct);
     return updated ? Results.Ok(new StatusResponse { OrderId = id, Status = body.Status }) : Results.NotFound();
 });
 
@@ -330,4 +346,6 @@ public sealed class ConfigResponse { public decimal HaulingRatePerM3 { get; set;
 [JsonSerializable(typeof(OrderDetail))]
 [JsonSerializable(typeof(OrderItemDetail))]
 [JsonSerializable(typeof(List<OrderItemDetail>))]
+[JsonSerializable(typeof(List<HaulerInfo>))]
+[JsonSerializable(typeof(HaulerInfo))]
 internal partial class HaulingJsonContext : JsonSerializerContext { }

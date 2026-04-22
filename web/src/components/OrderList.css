@@ -200,8 +200,7 @@
   gap: 8px;
 }
 
-.assign-hauler input {
-  width: 120px;
+.assign-hauler select {
   padding: 6px 10px;
   background: var(--bg-input);
   color: var(--text-primary);
@@ -210,6 +209,8 @@
   font-family: 'Open Sans', sans-serif;
   font-size: 0.85rem;
 }
+
+.assign-hauler button:disabled { opacity: 0.4; cursor: default; }
 
 .assign-hauler button {
   background: var(--status-in-transit);
