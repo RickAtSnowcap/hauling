@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { copyText } from '../copyText';
 import type { UserInfo, OrderSummary, OrderDetail } from '../types';
 import { listOrders, getOrder, updateOrderStatus, updateActualPrice, deleteOrder, assignHauler, listHaulers } from '../api';
 import type { HaulerInfo } from '../api';
@@ -28,6 +29,7 @@ export default function OrderList({ user, onEditOrder }: Props) {
   const [loading, setLoading] = useState(true);
   const [assignCharId, setAssignCharId] = useState('');
   const [haulers, setHaulers] = useState<HaulerInfo[]>([]);
+  const [copiedItemId, setCopiedItemId] = useState<number | null>(null);
 
   const isPrivileged = user.role === 'hauler' || user.role === 'admin';
   const isAdmin = user.role === 'admin';
@@ -140,7 +142,12 @@ export default function OrderList({ user, onEditOrder }: Props) {
             <tbody>
               {selectedOrder.items.map(item => (
                 <tr key={item.item_id}>
-                  <td>{item.type_name}</td>
+                  <td className="item-name-cell">
+                    {item.type_name}
+                    <button className="copy-item-btn" title="Copy item name" onClick={() => { copyText(item.type_name); setCopiedItemId(item.item_id); setTimeout(() => setCopiedItemId(null), 1500); }}>
+                      {copiedItemId === item.item_id ? '✓' : '⧉'}
+                    </button>
+                  </td>
                   <td>{item.quantity}</td>
                   <td>{item.line_m3.toFixed(2)}</td>
                   <td>{formatIsk(item.estimated_price)}</td>

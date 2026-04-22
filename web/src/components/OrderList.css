@@ -239,3 +239,23 @@
 }
 
 .delete-order-btn:hover { background: var(--accent-hover); }
+
+.item-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.copy-item-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+
+.copy-item-btn:hover { color: var(--text-primary); }
