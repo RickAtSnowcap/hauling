@@ -59,10 +59,14 @@ export default function OrderList({ user, onEditOrder }: Props) {
     if (selectedOrder?.order_id === orderId) setSelectedOrder(await getOrder(orderId));
   }
 
+  const [savedItemId, setSavedItemId] = useState<number | null>(null);
+
   async function handleActualPrice(itemId: number, price: string) {
     const num = parseFloat(price);
-    if (isNaN(num)) return;
+    if (isNaN(num) || num <= 0) return;
     await updateActualPrice(itemId, num);
+    setSavedItemId(itemId);
+    setTimeout(() => setSavedItemId(null), 1500);
     if (selectedOrder) setSelectedOrder(await getOrder(selectedOrder.order_id));
   }
 
@@ -136,13 +140,13 @@ export default function OrderList({ user, onEditOrder }: Props) {
                 <th>Qty</th>
                 <th>m3</th>
                 <th>Est. Price</th>
-                <th>Actual Price</th>
+                <th>Actual (per unit)</th>
               </tr>
             </thead>
             <tbody>
               {selectedOrder.items.map(item => (
                 <tr key={item.item_id}>
-                  <td className="item-name-cell">
+                  <td>
                     {item.type_name}
                     <button className="copy-item-btn" title="Copy item name" onClick={() => { copyText(item.type_name); setCopiedItemId(item.item_id); setTimeout(() => setCopiedItemId(null), 1500); }}>
                       {copiedItemId === item.item_id ? '✓' : '⧉'}
@@ -153,9 +157,12 @@ export default function OrderList({ user, onEditOrder }: Props) {
                   <td>{formatIsk(item.estimated_price)}</td>
                   <td>
                     {isPrivileged ? (
-                      <input type="number" step="0.01" defaultValue={item.actual_price ?? ''}
-                        placeholder="--"
-                        onBlur={e => handleActualPrice(item.item_id, e.target.value)} />
+                      <span className="actual-price-cell">
+                        <input type="number" step="0.01" defaultValue={item.actual_price ?? ''}
+                          placeholder="per unit"
+                          onBlur={e => handleActualPrice(item.item_id, e.target.value)} />
+                        {savedItemId === item.item_id && <span className="saved-indicator">✓</span>}
+                      </span>
                     ) : formatIsk(item.actual_price)}
                   </td>
                 </tr>

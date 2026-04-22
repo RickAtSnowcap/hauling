@@ -115,7 +115,7 @@
 }
 
 .detail-table input[type="number"] {
-  width: 100px;
+  width: 130px;
   padding: 4px 8px;
   background: var(--bg-input);
   color: var(--text-primary);
@@ -240,10 +240,8 @@
 
 .delete-order-btn:hover { background: var(--accent-hover); }
 
-.item-name-cell {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.item-name-cell .copy-item-btn {
+  margin-left: 6px;
 }
 
 .copy-item-btn {
@@ -259,3 +257,15 @@
 }
 
 .copy-item-btn:hover { color: var(--text-primary); }
+
+.actual-price-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.saved-indicator {
+  color: #2ecc71;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
