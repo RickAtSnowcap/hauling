@@ -16,7 +16,7 @@ public sealed class ItemRepository
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var cmd = new NpgsqlCommand(
-            "SELECT type_id, type_name, volume FROM hauling.eve_types WHERE type_name ILIKE @q ORDER BY type_name LIMIT @lim", conn);
+            "SELECT type_id, type_name, COALESCE(packaged_volume, volume) FROM hauling.eve_types WHERE type_name ILIKE @q ORDER BY type_name LIMIT @lim", conn);
         cmd.Parameters.AddWithValue("q", $"%{query}%");
         cmd.Parameters.AddWithValue("lim", limit);
 
@@ -42,7 +42,7 @@ public sealed class ItemRepository
 
         // Use ANY for batch matching - exact case-insensitive match
         await using var cmd = new NpgsqlCommand(
-            "SELECT type_id, type_name, volume FROM hauling.eve_types WHERE LOWER(type_name) = ANY(@names)", conn);
+            "SELECT type_id, type_name, COALESCE(packaged_volume, volume) FROM hauling.eve_types WHERE LOWER(type_name) = ANY(@names)", conn);
         cmd.Parameters.AddWithValue("names", names.Select(n => n.ToLowerInvariant()).ToArray());
 
         var results = new List<ItemResult>();
@@ -64,7 +64,7 @@ public sealed class ItemRepository
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var cmd = new NpgsqlCommand(
-            "SELECT type_id, type_name, volume FROM hauling.eve_types WHERE type_id = @id", conn);
+            "SELECT type_id, type_name, COALESCE(packaged_volume, volume) FROM hauling.eve_types WHERE type_id = @id", conn);
         cmd.Parameters.AddWithValue("id", typeId);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return null;
