@@ -176,11 +176,7 @@ export default function OrderList({ user, onEditOrder }: Props) {
               </div>
             )}
 
-            {canEditOrder(selectedOrder) && (
-              <button className="edit-order-btn" onClick={() => onEditOrder(selectedOrder)}>Edit Order</button>
-            )}
-
-            {isAdmin && (
+            {isAdmin ? (
               <div className="admin-actions">
                 <div className="assign-hauler">
                   <select value={assignCharId} onChange={e => setAssignCharId(e.target.value)}>
@@ -193,8 +189,13 @@ export default function OrderList({ user, onEditOrder }: Props) {
                   </select>
                   <button onClick={() => handleAssignHauler(selectedOrder.order_id)} disabled={!assignCharId}>Assign</button>
                 </div>
+                {canEditOrder(selectedOrder) && (
+                  <button className="edit-order-btn" onClick={() => onEditOrder(selectedOrder)}>Edit Order</button>
+                )}
                 <button className="delete-order-btn" onClick={() => handleDelete(selectedOrder.order_id)}>Delete Order</button>
               </div>
+            ) : canEditOrder(selectedOrder) && (
+              <button className="edit-order-btn" onClick={() => onEditOrder(selectedOrder)}>Edit Order</button>
             )}
           </div>
         </div>
