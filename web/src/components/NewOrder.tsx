@@ -240,7 +240,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
       <div className="route-selection">
         <div className="route-field">
           <label>Origin:</label>
-          <select value={origin} onChange={e => setOrigin(e.target.value)}>
+          <select value={origin} onChange={e => { setOrigin(e.target.value); if (e.target.value !== 'Jita') setShopRequested(false); }}>
             <option value="Jita">Jita (market hub)</option>
             <option value="Odebeinn">Odebeinn (asset safety)</option>
           </select>
@@ -254,13 +254,15 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
         </div>
       </div>
 
-      <div className="order-options">
-        <label className="shop-toggle">
-          <input type="checkbox" checked={shopRequested} onChange={e => setShopRequested(e.target.checked)} />
-          <span>Personal Shopper</span>
-          <span className="shop-hint">{shopRequested ? 'We buy items for you (per-item fee)' : 'You provide items at origin, we haul'}</span>
-        </label>
-      </div>
+      {origin === 'Jita' && (
+        <div className="order-options">
+          <label className="shop-toggle">
+            <input type="checkbox" checked={shopRequested} onChange={e => setShopRequested(e.target.checked)} />
+            <span>Personal Shopper</span>
+            <span className="shop-hint">{shopRequested ? 'We buy items for you (per-item fee)' : 'You provide items at origin, we haul'}</span>
+          </label>
+        </div>
+      )}
 
       <div className="input-mode-bar">
         <button className={inputMode === 'search' ? 'active' : ''} onClick={() => { setInputMode('search'); setPasteText(''); }}>Search Items</button>
