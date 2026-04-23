@@ -30,6 +30,7 @@ export default function OrderList({ user, onEditOrder }: Props) {
   const [assignCharId, setAssignCharId] = useState('');
   const [haulers, setHaulers] = useState<HaulerInfo[]>([]);
   const [copiedItemId, setCopiedItemId] = useState<number | null>(null);
+  const [copiedList, setCopiedList] = useState(false);
 
   const isPrivileged = user.role === 'hauler' || user.role === 'admin';
   const isAdmin = user.role === 'admin';
@@ -135,6 +136,17 @@ export default function OrderList({ user, onEditOrder }: Props) {
             {selectedOrder.assigned_to_name && <span>Hauler: {selectedOrder.assigned_to_name}</span>}
             <span>Created: {formatDate(selectedOrder.created_at)}</span>
           </div>
+
+          {selectedOrder.shop_requested && isPrivileged && (
+            <button className="copy-list-btn" onClick={() => {
+              const text = selectedOrder.items.map(i => `${i.type_name} ${i.quantity}`).join('\n');
+              copyText(text);
+              setCopiedList(true);
+              setTimeout(() => setCopiedList(false), 2000);
+            }}>
+              {copiedList ? '✓ Copied' : 'Copy Shopping List'}
+            </button>
+          )}
 
           <table className="detail-table">
             <thead>

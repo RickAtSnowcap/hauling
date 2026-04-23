@@ -258,6 +258,21 @@
 
 .copy-item-btn:hover { color: var(--text-primary); }
 
+.copy-list-btn {
+  margin-bottom: 12px;
+  padding: 8px 16px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: 'Open Sans', sans-serif;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.copy-list-btn:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+
 .actual-price-cell {
   display: inline-flex;
   align-items: center;
