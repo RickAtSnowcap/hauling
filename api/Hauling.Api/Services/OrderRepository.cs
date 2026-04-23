@@ -11,8 +11,9 @@ public sealed class OrderRepository
         _connectionString = connectionString;
     }
 
-    public async Task<long> CreateOrderAsync(long characterId, bool shopRequested, List<OrderItemInput> items,
-        decimal haulingRate, decimal shopperFeePct, CancellationToken ct)
+    public async Task<long> CreateOrderAsync(long characterId, string originSystem, string destinationSystem,
+        bool shopRequested, List<OrderItemInput> items,
+        decimal haulingRate, decimal shopperFeePerItem, decimal shopperFeeMinimum, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -27,13 +28,15 @@ public sealed class OrderRepository
         }
 
         var haulingFee = totalM3 * haulingRate;
-        var shopperFee = shopRequested ? totalEstimatedIsk * (shopperFeePct / 100m) : 0;
+        var shopperFee = shopRequested ? Math.Max(items.Count * shopperFeePerItem, shopperFeeMinimum) : 0;
 
         await using var orderCmd = new NpgsqlCommand(@"
-            INSERT INTO hauling.orders (character_id, shop_requested, total_m3, total_estimated_isk, hauling_fee, shopper_fee)
-            VALUES (@cid, @shop, @m3, @isk, @hfee, @sfee)
+            INSERT INTO hauling.orders (character_id, origin_system, destination_system, shop_requested, total_m3, total_estimated_isk, hauling_fee, shopper_fee)
+            VALUES (@cid, @origin, @dest, @shop, @m3, @isk, @hfee, @sfee)
             RETURNING order_id", conn, tx);
         orderCmd.Parameters.AddWithValue("cid", characterId);
+        orderCmd.Parameters.AddWithValue("origin", originSystem);
+        orderCmd.Parameters.AddWithValue("dest", destinationSystem);
         orderCmd.Parameters.AddWithValue("shop", shopRequested);
         orderCmd.Parameters.AddWithValue("m3", totalM3);
         orderCmd.Parameters.AddWithValue("isk", totalEstimatedIsk);
@@ -68,7 +71,8 @@ public sealed class OrderRepository
 
         var sql = @"SELECT o.order_id, o.character_id, u.character_name, o.status, o.shop_requested,
                            o.total_m3, o.total_estimated_isk, o.total_actual_isk, o.hauling_fee, o.shopper_fee,
-                           o.created_at, o.updated_at, o.assigned_to, h.character_name
+                           o.created_at, o.updated_at, o.assigned_to, h.character_name,
+                           o.origin_system, o.destination_system
                     FROM hauling.orders o
                     JOIN hauling.users u ON o.character_id = u.character_id
                     LEFT JOIN hauling.users h ON o.assigned_to = h.character_id";
@@ -99,7 +103,9 @@ public sealed class OrderRepository
                 CreatedAt = reader.GetDateTime(10),
                 UpdatedAt = reader.GetDateTime(11),
                 AssignedTo = reader.IsDBNull(12) ? null : reader.GetInt64(12),
-                AssignedToName = reader.IsDBNull(13) ? null : reader.GetString(13)
+                AssignedToName = reader.IsDBNull(13) ? null : reader.GetString(13),
+                OriginSystem = reader.GetString(14),
+                DestinationSystem = reader.GetString(15)
             });
         }
         return results;
@@ -113,7 +119,8 @@ public sealed class OrderRepository
         await using var orderCmd = new NpgsqlCommand(@"
             SELECT o.order_id, o.character_id, u.character_name, o.status, o.shop_requested,
                    o.total_m3, o.total_estimated_isk, o.total_actual_isk, o.hauling_fee, o.shopper_fee,
-                   o.assigned_to, o.created_at, o.updated_at, h.character_name
+                   o.assigned_to, o.created_at, o.updated_at, h.character_name,
+                   o.origin_system, o.destination_system
             FROM hauling.orders o
             JOIN hauling.users u ON o.character_id = u.character_id
             LEFT JOIN hauling.users h ON o.assigned_to = h.character_id
@@ -137,7 +144,9 @@ public sealed class OrderRepository
             AssignedTo = orderReader.IsDBNull(10) ? null : orderReader.GetInt64(10),
             CreatedAt = orderReader.GetDateTime(11),
             UpdatedAt = orderReader.GetDateTime(12),
-            AssignedToName = orderReader.IsDBNull(13) ? null : orderReader.GetString(13)
+            AssignedToName = orderReader.IsDBNull(13) ? null : orderReader.GetString(13),
+            OriginSystem = orderReader.GetString(14),
+            DestinationSystem = orderReader.GetString(15)
         };
         await orderReader.CloseAsync();
 
@@ -206,7 +215,7 @@ public sealed class OrderRepository
     }
 
     public async Task ReplaceOrderItemsAsync(long orderId, bool shopRequested, List<OrderItemInput> items,
-        decimal haulingRate, decimal shopperFeePct, CancellationToken ct)
+        decimal haulingRate, decimal shopperFeePerItem, decimal shopperFeeMinimum, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -241,7 +250,7 @@ public sealed class OrderRepository
         }
 
         var haulingFee = totalM3 * haulingRate;
-        var shopperFee = shopRequested ? totalEstimatedIsk * (shopperFeePct / 100m) : 0;
+        var shopperFee = shopRequested ? Math.Max(items.Count * shopperFeePerItem, shopperFeeMinimum) : 0;
 
         await using var updateCmd = new NpgsqlCommand(@"
             UPDATE hauling.orders SET shop_requested = @shop, total_m3 = @m3, total_estimated_isk = @isk,
@@ -292,25 +301,16 @@ public sealed class OrderRepository
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
 
-        // Get shopper fee percentage from config
-        await using var cfgCmd = new NpgsqlCommand("SELECT value FROM hauling.config WHERE key = 'shopper_fee_pct'", conn);
-        var pctStr = (await cfgCmd.ExecuteScalarAsync(ct))?.ToString() ?? "10";
-        var shopperPct = decimal.Parse(pctStr);
-
         await using var cmd = new NpgsqlCommand(@"
-            WITH actuals AS (
-                SELECT COALESCE(SUM(actual_price * quantity), 0) AS total_actual
-                FROM hauling.order_items
-                WHERE order_id = @oid AND actual_price IS NOT NULL
-            )
             UPDATE hauling.orders SET
-                total_actual_isk = actuals.total_actual,
-                shopper_fee = CASE WHEN shop_requested THEN actuals.total_actual * @pct / 100 ELSE 0 END,
+                total_actual_isk = (
+                    SELECT COALESCE(SUM(actual_price * quantity), 0)
+                    FROM hauling.order_items
+                    WHERE order_id = @oid AND actual_price IS NOT NULL
+                ),
                 updated_at = now()
-            FROM actuals
             WHERE order_id = @oid", conn);
         cmd.Parameters.AddWithValue("oid", orderId);
-        cmd.Parameters.AddWithValue("pct", shopperPct);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 }
@@ -328,6 +328,8 @@ public class OrderSummary
     public long OrderId { get; set; }
     public long CharacterId { get; set; }
     public string CharacterName { get; set; } = "";
+    public string OriginSystem { get; set; } = "";
+    public string DestinationSystem { get; set; } = "";
     public string Status { get; set; } = "";
     public bool ShopRequested { get; set; }
     public decimal TotalM3 { get; set; }

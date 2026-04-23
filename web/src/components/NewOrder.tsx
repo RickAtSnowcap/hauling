@@ -10,6 +10,8 @@ interface Props {
 }
 
 export default function NewOrder({ editingOrder, onEditComplete }: Props) {
+  const [origin, setOrigin] = useState('Jita');
+  const [destination, setDestination] = useState('E-BYOS');
   const [shopRequested, setShopRequested] = useState(false);
   const [items, setItems] = useState<OrderItemInput[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -68,7 +70,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
     if (items.some(i => i.type_id === item.type_id)) return;
     setShowResults(false);
     setSearchQuery('');
-    const price = await getJitaPrice(item.type_id);
+    const price = shopRequested ? await getJitaPrice(item.type_id) : 0;
     setItems(prev => [...prev, {
       type_id: item.type_id,
       type_name: item.type_name,
@@ -130,7 +132,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
         if (existingIdx >= 0) {
           newItems[existingIdx] = { ...newItems[existingIdx], quantity: newItems[existingIdx].quantity + qty };
         } else {
-          const price = await getJitaPrice(item.type_id);
+          const price = shopRequested ? await getJitaPrice(item.type_id) : 0;
           newItems.push({
             type_id: item.type_id,
             type_name: item.type_name,
@@ -163,9 +165,13 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
 
   const totalM3 = items.reduce((sum, i) => sum + i.volume_per_unit * i.quantity, 0);
   const totalEstIsk = items.reduce((sum, i) => sum + i.estimated_price * i.quantity, 0);
-  const haulingFee = config ? totalM3 * config.hauling_rate_per_m3 : 0;
-  const shopperFee = shopRequested && config ? totalEstIsk * (config.shopper_fee_pct / 100) : 0;
-  const grandTotal = totalEstIsk + haulingFee + shopperFee;
+  const ratePerM3 = origin === 'Jita' ? (config?.jita_rate_per_m3 ?? 1050) : (config?.odebeinn_rate_per_m3 ?? 650);
+  const haulingFee = totalM3 * ratePerM3;
+  const itemCount = items.length;
+  const shopperFee = shopRequested && config
+    ? Math.max(itemCount * config.shopper_fee_per_item, config.shopper_fee_minimum)
+    : 0;
+  const grandTotal = (shopRequested ? totalEstIsk : 0) + haulingFee + shopperFee;
   const maxM3 = config?.max_order_m3 ?? 300000;
   const overCapacity = totalM3 > maxM3;
 
@@ -178,7 +184,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
         await updateOrderItems(editingOrder.order_id, shopRequested, items);
         onEditComplete?.();
       } else {
-        const orderId = await createOrder(shopRequested, items);
+        const orderId = await createOrder(shopRequested, items, origin, destination);
         setSuccess(orderId);
         setItems([]);
       }
@@ -225,11 +231,32 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
         </div>
       )}
 
+      <div className="pricing-link">
+        <a href="/hauling/pricing" target="_blank">How are fees calculated?</a>
+      </div>
+
+      <div className="route-selection">
+        <div className="route-field">
+          <label>Origin:</label>
+          <select value={origin} onChange={e => setOrigin(e.target.value)}>
+            <option value="Jita">Jita (market hub)</option>
+            <option value="Odebeinn">Odebeinn (asset safety)</option>
+          </select>
+        </div>
+        <div className="route-field">
+          <label>Destination:</label>
+          <select value={destination} onChange={e => setDestination(e.target.value)}>
+            <option value="E-B957">E-B957 (Builders Edge)</option>
+            <option value="E-BYOS">E-BYOS (The Forum)</option>
+          </select>
+        </div>
+      </div>
+
       <div className="order-options">
         <label className="shop-toggle">
           <input type="checkbox" checked={shopRequested} onChange={e => setShopRequested(e.target.checked)} />
           <span>Personal Shopper</span>
-          <span className="shop-hint">{shopRequested ? `We buy items for you (+${config?.shopper_fee_pct ?? 10}% fee)` : 'You provide items in Jita, we haul'}</span>
+          <span className="shop-hint">{shopRequested ? 'We buy items for you (per-item fee)' : 'You provide items at origin, we haul'}</span>
         </label>
       </div>
 
@@ -318,8 +345,8 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
           <div className="order-totals">
             <div className={`total-row ${overCapacity ? 'over-capacity' : ''}`}><span>Total Volume:</span><span>{formatM3(totalM3)} / {formatM3(maxM3)} m³</span></div>
             {shopRequested && <div className="total-row"><span>Estimated Item Cost:</span><span>{formatIsk(totalEstIsk)} ISK</span></div>}
-            <div className="total-row"><span>Hauling Fee ({config?.hauling_rate_per_m3 ?? 0} ISK/m³):</span><span>{formatIsk(haulingFee)} ISK</span></div>
-            {shopRequested && <div className="total-row"><span>Shopper Fee ({config?.shopper_fee_pct ?? 0}%):</span><span>{formatIsk(shopperFee)} ISK</span></div>}
+            <div className="total-row"><span>Hauling Fee ({origin === 'Jita' ? config?.jita_rate_per_m3 : config?.odebeinn_rate_per_m3} ISK/m³):</span><span>{formatIsk(haulingFee)} ISK</span></div>
+            {shopRequested && <div className="total-row"><span>Shopper Fee ({itemCount} items × {formatIsk(config?.shopper_fee_per_item ?? 0)} ISK, min {formatIsk(config?.shopper_fee_minimum ?? 0)}):</span><span>{formatIsk(shopperFee)} ISK</span></div>}
             <div className="total-row grand-total"><span>{shopRequested ? 'Grand Total:' : 'Total Fee:'}</span><span>{formatIsk(shopRequested ? grandTotal : haulingFee)} ISK</span></div>
           </div>
 

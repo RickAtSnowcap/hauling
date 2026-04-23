@@ -10,8 +10,10 @@ export interface PriceResponse {
 }
 
 export interface ConfigResponse {
-  hauling_rate_per_m3: number;
-  shopper_fee_pct: number;
+  jita_rate_per_m3: number;
+  odebeinn_rate_per_m3: number;
+  shopper_fee_per_item: number;
+  shopper_fee_minimum: number;
   max_order_m3: number;
 }
 
@@ -36,6 +38,8 @@ export interface OrderSummary {
   shopper_fee: number;
   created_at: string;
   updated_at: string;
+  origin_system: string;
+  destination_system: string;
   assigned_to: number | null;
   assigned_to_name: string | null;
 }

@@ -140,8 +140,19 @@ app.MapPost("/api/orders", async (HttpRequest request, CreateOrderRequest body, 
     var claims = GetClaims(request, auth);
     if (claims == null) return Results.Unauthorized();
 
-    var haulingRate = decimal.Parse(await users.GetConfigAsync("hauling_rate_per_m3", ct));
-    var shopperPct = decimal.Parse(await users.GetConfigAsync("shopper_fee_pct", ct));
+    // Validate origin/destination
+    var validOrigins = new[] { "Jita", "Odebeinn" };
+    var validDestinations = new[] { "E-B957", "E-BYOS" };
+    if (!validOrigins.Contains(body.OriginSystem))
+        return Results.BadRequest(new ErrorResponse { Error = $"Invalid origin system. Must be one of: {string.Join(", ", validOrigins)}" });
+    if (!validDestinations.Contains(body.DestinationSystem))
+        return Results.BadRequest(new ErrorResponse { Error = $"Invalid destination system. Must be one of: {string.Join(", ", validDestinations)}" });
+
+    // Get rate based on origin
+    var rateKey = body.OriginSystem == "Jita" ? "jita_rate_per_m3" : "odebeinn_rate_per_m3";
+    var haulingRate = decimal.Parse(await users.GetConfigAsync(rateKey, ct));
+    var shopperFeePerItem = decimal.Parse(await users.GetConfigAsync("shopper_fee_per_item", ct));
+    var shopperFeeMinimum = decimal.Parse(await users.GetConfigAsync("shopper_fee_minimum", ct));
     var maxM3 = decimal.Parse(await users.GetConfigAsync("max_order_m3", ct));
 
     var items = body.Items.Select(i => new OrderItemInput
@@ -157,7 +168,8 @@ app.MapPost("/api/orders", async (HttpRequest request, CreateOrderRequest body, 
     if (totalM3 > maxM3)
         return Results.BadRequest(new ErrorResponse { Error = $"Order exceeds maximum capacity of {maxM3:N0} m³ ({totalM3:N2} m³ requested)" });
 
-    var orderId = await orders.CreateOrderAsync(claims.CharacterId, body.ShopRequested, items, haulingRate, shopperPct, ct);
+    var orderId = await orders.CreateOrderAsync(claims.CharacterId, body.OriginSystem, body.DestinationSystem,
+        body.ShopRequested, items, haulingRate, shopperFeePerItem, shopperFeeMinimum, ct);
     return Results.Created($"/api/orders/{orderId}", new OrderCreatedResponse { OrderId = orderId });
 });
 
@@ -236,8 +248,11 @@ app.MapPut("/api/orders/{id:long}/items", async (long id, HttpRequest request, C
     }
     // admin can edit
 
-    var haulingRate = decimal.Parse(await users.GetConfigAsync("hauling_rate_per_m3", ct));
-    var shopperPct = decimal.Parse(await users.GetConfigAsync("shopper_fee_pct", ct));
+    // Get rate based on order's origin system
+    var rateKey = order.OriginSystem == "Jita" ? "jita_rate_per_m3" : "odebeinn_rate_per_m3";
+    var haulingRate = decimal.Parse(await users.GetConfigAsync(rateKey, ct));
+    var shopperFeePerItem = decimal.Parse(await users.GetConfigAsync("shopper_fee_per_item", ct));
+    var shopperFeeMinimum = decimal.Parse(await users.GetConfigAsync("shopper_fee_minimum", ct));
 
     var itemInputs = body.Items.Select(i => new OrderItemInput
     {
@@ -247,7 +262,7 @@ app.MapPut("/api/orders/{id:long}/items", async (long id, HttpRequest request, C
         EstimatedPrice = i.EstimatedPrice
     }).ToList();
 
-    await orders.ReplaceOrderItemsAsync(id, body.ShopRequested, itemInputs, haulingRate, shopperPct, ct);
+    await orders.ReplaceOrderItemsAsync(id, body.ShopRequested, itemInputs, haulingRate, shopperFeePerItem, shopperFeeMinimum, ct);
     return Results.Ok(new HealthResponse { Status = "updated" });
 });
 
@@ -296,10 +311,19 @@ app.MapPut("/api/orders/items/{itemId:long}/actual-price", async (long itemId, H
 // GET /api/config — get fee rates (public for display)
 app.MapGet("/api/config", async (UserRepository users, CancellationToken ct) =>
 {
-    var haulingRate = await users.GetConfigAsync("hauling_rate_per_m3", ct);
-    var shopperPct = await users.GetConfigAsync("shopper_fee_pct", ct);
+    var jitaRate = await users.GetConfigAsync("jita_rate_per_m3", ct);
+    var odebeinnRate = await users.GetConfigAsync("odebeinn_rate_per_m3", ct);
+    var shopperFeePerItem = await users.GetConfigAsync("shopper_fee_per_item", ct);
+    var shopperFeeMinimum = await users.GetConfigAsync("shopper_fee_minimum", ct);
     var maxM3 = await users.GetConfigAsync("max_order_m3", ct);
-    return Results.Ok(new ConfigResponse { HaulingRatePerM3 = decimal.Parse(haulingRate), ShopperFeePct = decimal.Parse(shopperPct), MaxOrderM3 = decimal.Parse(maxM3) });
+    return Results.Ok(new ConfigResponse
+    {
+        JitaRatePerM3 = decimal.Parse(jitaRate),
+        OdebeinnRatePerM3 = decimal.Parse(odebeinnRate),
+        ShopperFeePerItem = decimal.Parse(shopperFeePerItem),
+        ShopperFeeMinimum = decimal.Parse(shopperFeeMinimum),
+        MaxOrderM3 = decimal.Parse(maxM3)
+    });
 });
 
 app.Run();
@@ -313,6 +337,8 @@ public sealed class MeResponse { public long CharacterId { get; set; } public st
 // Request types
 public sealed class CreateOrderRequest
 {
+    public string OriginSystem { get; set; } = "";
+    public string DestinationSystem { get; set; } = "";
     public bool ShopRequested { get; set; }
     public List<CreateOrderItemRequest> Items { get; set; } = new();
 }
@@ -331,7 +357,14 @@ public sealed class AssignRequest { public long CharacterId { get; set; } }
 public sealed class PriceResponse { public int TypeId { get; set; } public decimal JitaSellPrice { get; set; } }
 public sealed class OrderCreatedResponse { public long OrderId { get; set; } }
 public sealed class StatusResponse { public long OrderId { get; set; } public string Status { get; set; } = ""; }
-public sealed class ConfigResponse { public decimal HaulingRatePerM3 { get; set; } public decimal ShopperFeePct { get; set; } public decimal MaxOrderM3 { get; set; } }
+public sealed class ConfigResponse
+{
+    public decimal JitaRatePerM3 { get; set; }
+    public decimal OdebeinnRatePerM3 { get; set; }
+    public decimal ShopperFeePerItem { get; set; }
+    public decimal ShopperFeeMinimum { get; set; }
+    public decimal MaxOrderM3 { get; set; }
+}
 
 // AOT JSON source generator
 [JsonSerializable(typeof(HealthResponse))]

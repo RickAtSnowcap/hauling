@@ -3,12 +3,16 @@ import type { UserInfo } from './types';
 import { getMe } from './api';
 import LoginPage from './components/LoginPage';
 import MainPage from './components/MainPage';
+import PricingPage from './components/PricingPage';
 import './App.css';
 
 function App() {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState('');
+
+  const isPricing = /\/pricing\/?$/.test(window.location.pathname);
+  if (isPricing) return <PricingPage />;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);

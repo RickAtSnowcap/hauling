@@ -1,0 +1,75 @@
+.pricing-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 40px 30px;
+  width: 100%;
+}
+
+.pricing-page h1 {
+  font-size: 1.6rem;
+  color: var(--accent);
+  margin-bottom: 32px;
+}
+
+.pricing-page section {
+  margin-bottom: 32px;
+}
+
+.pricing-page h2 {
+  font-size: 1.1rem;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.pricing-page p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.pricing-page ul, .pricing-page ol {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.8;
+  padding-left: 24px;
+  margin-bottom: 12px;
+}
+
+.pricing-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+}
+
+.pricing-table th {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 2px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.pricing-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.pricing-back {
+  margin-top: 40px;
+}
+
+.pricing-back a {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.pricing-back a:hover {
+  text-decoration: underline;
+}

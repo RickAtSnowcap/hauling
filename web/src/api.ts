@@ -43,12 +43,14 @@ export async function getConfig(): Promise<ConfigResponse> {
   return resp.json();
 }
 
-export async function createOrder(shopRequested: boolean, items: OrderItemInput[]): Promise<number> {
+export async function createOrder(shopRequested: boolean, items: OrderItemInput[], originSystem: string, destinationSystem: string): Promise<number> {
   const resp = await fetch(`${BASE}/api/orders`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({
       shop_requested: shopRequested,
+      origin_system: originSystem,
+      destination_system: destinationSystem,
       items: items.map(i => ({
         type_id: i.type_id,
         quantity: i.quantity,
