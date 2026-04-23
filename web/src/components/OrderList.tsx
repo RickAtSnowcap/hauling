@@ -85,6 +85,7 @@ export default function OrderList({ user, onEditOrder }: Props) {
     if (isNaN(charId)) return;
     try {
       await assignHauler(orderId, charId);
+      await loadOrders();
       setSelectedOrder(await getOrder(orderId));
       setAssignCharId('');
     } catch { /* ignore */ }
