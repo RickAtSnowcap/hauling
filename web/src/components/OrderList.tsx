@@ -198,13 +198,15 @@ export default function OrderList({ user, onEditOrder }: Props) {
 
           <div className="detail-actions">
             {isPrivileged && (
-              <div className="status-actions">
-                <span>Update Status:</span>
-                {selectedOrder.status !== 'pending' && <button className="status-btn pending" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'pending')}>Pending</button>}
-                {selectedOrder.status !== 'accepted' && <button className="status-btn accepted" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'accepted')}>Accept</button>}
-                {selectedOrder.status !== 'in_transit' && <button className="status-btn in-transit" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'in_transit')}>In Transit</button>}
-                {selectedOrder.status !== 'delivered' && <button className="status-btn delivered" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'delivered')}>Delivered</button>}
-                {selectedOrder.status !== 'cancelled' && <button className="status-btn cancelled" onClick={() => handleStatusUpdate(selectedOrder.order_id, 'cancelled')}>Cancel</button>}
+              <div className="status-radios">
+                <span className="status-label">Status:</span>
+                {['pending', 'accepted', 'in_transit', 'delivered', 'cancelled'].map(s => (
+                  <label key={s} className="status-radio">
+                    <input type="radio" name="order-status" checked={selectedOrder.status === s}
+                      onChange={() => handleStatusUpdate(selectedOrder.order_id, s)} />
+                    {s.replace('_', ' ')}
+                  </label>
+                ))}
               </div>
             )}
 
@@ -222,12 +224,12 @@ export default function OrderList({ user, onEditOrder }: Props) {
                   <button onClick={() => handleAssignHauler(selectedOrder.order_id)} disabled={!assignCharId}>Assign</button>
                 </div>
                 {canEditOrder(selectedOrder) && (
-                  <button className="edit-order-btn" onClick={() => onEditOrder(selectedOrder)}>Edit Order</button>
+                  <button className="edit-btn" onClick={() => onEditOrder(selectedOrder)}>Edit Order</button>
                 )}
-                <button className="delete-order-btn" onClick={() => handleDelete(selectedOrder.order_id)}>Delete Order</button>
+                <button className="delete-btn" onClick={() => handleDelete(selectedOrder.order_id)}>Delete Order</button>
               </div>
             ) : canEditOrder(selectedOrder) && (
-              <button className="edit-order-btn" onClick={() => onEditOrder(selectedOrder)}>Edit Order</button>
+              <button className="edit-btn" onClick={() => onEditOrder(selectedOrder)}>Edit Order</button>
             )}
           </div>
         </div>

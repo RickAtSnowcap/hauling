@@ -140,31 +140,32 @@
   font-size: 0.9rem;
 }
 
-.status-actions {
+.status-radios {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 0.9rem;
+  gap: 14px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.status-label {
+  font-weight: 600;
   color: var(--text-secondary);
 }
 
-.status-btn {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 4px;
-  font-family: 'Open Sans', sans-serif;
-  font-weight: 600;
-  font-size: 0.85rem;
+.status-radio {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   cursor: pointer;
-  color: white;
+  text-transform: capitalize;
 }
 
-.status-btn.pending { background: var(--status-pending); }
-.status-btn.accepted { background: var(--status-accepted); }
-.status-btn.in-transit { background: var(--status-in-transit); }
-.status-btn.delivered { background: var(--status-delivered); }
-.status-btn.cancelled { background: var(--status-cancelled); }
-.status-btn:hover { opacity: 0.85; }
+.status-radio input[type="radio"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 
 .detail-actions {
   display: flex;
@@ -172,20 +173,19 @@
   gap: 12px;
 }
 
-.edit-order-btn {
-  background: var(--status-accepted);
-  color: white;
-  border: none;
+.edit-btn {
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 8px 16px;
   font-family: 'Open Sans', sans-serif;
   font-weight: 600;
   font-size: 0.85rem;
   cursor: pointer;
-  align-self: flex-start;
 }
 
-.edit-order-btn:hover { opacity: 0.85; }
+.edit-btn:hover { color: var(--text-primary); border-color: var(--text-secondary); }
 
 .admin-actions {
   display: flex;
@@ -226,10 +226,10 @@
 
 .assign-hauler button:hover { opacity: 0.85; }
 
-.delete-order-btn {
-  background: var(--accent);
-  color: white;
-  border: none;
+.delete-btn {
+  background: var(--bg-input);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 8px 16px;
   font-family: 'Open Sans', sans-serif;
@@ -238,7 +238,7 @@
   cursor: pointer;
 }
 
-.delete-order-btn:hover { background: var(--accent-hover); }
+.delete-btn:hover { color: var(--accent); border-color: var(--accent); }
 
 .item-name-cell .copy-item-btn {
   margin-left: 6px;
