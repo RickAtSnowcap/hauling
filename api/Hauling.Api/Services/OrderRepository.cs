@@ -214,7 +214,8 @@ public sealed class OrderRepository
         return result == null ? null : Convert.ToInt64(result);
     }
 
-    public async Task ReplaceOrderItemsAsync(long orderId, bool shopRequested, List<OrderItemInput> items,
+    public async Task ReplaceOrderItemsAsync(long orderId, string originSystem, string destinationSystem,
+        bool shopRequested, List<OrderItemInput> items,
         decimal haulingRate, decimal shopperFeePerItem, decimal shopperFeeMinimum, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
@@ -253,9 +254,12 @@ public sealed class OrderRepository
         var shopperFee = shopRequested ? Math.Max(items.Count * shopperFeePerItem, shopperFeeMinimum) : 0;
 
         await using var updateCmd = new NpgsqlCommand(@"
-            UPDATE hauling.orders SET shop_requested = @shop, total_m3 = @m3, total_estimated_isk = @isk,
+            UPDATE hauling.orders SET origin_system = @origin, destination_system = @dest,
+                shop_requested = @shop, total_m3 = @m3, total_estimated_isk = @isk,
                 hauling_fee = @hfee, shopper_fee = @sfee, updated_at = now()
             WHERE order_id = @oid", conn, tx);
+        updateCmd.Parameters.AddWithValue("origin", originSystem);
+        updateCmd.Parameters.AddWithValue("dest", destinationSystem);
         updateCmd.Parameters.AddWithValue("shop", shopRequested);
         updateCmd.Parameters.AddWithValue("m3", totalM3);
         updateCmd.Parameters.AddWithValue("isk", totalEstimatedIsk);

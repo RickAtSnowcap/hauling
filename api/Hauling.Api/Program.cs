@@ -248,8 +248,12 @@ app.MapPut("/api/orders/{id:long}/items", async (long id, HttpRequest request, C
     }
     // admin can edit
 
-    // Get rate based on order's origin system
-    var rateKey = order.OriginSystem == "Jita" ? "jita_rate_per_m3" : "odebeinn_rate_per_m3";
+    // Use new origin/destination if provided, otherwise keep existing
+    var originSystem = !string.IsNullOrEmpty(body.OriginSystem) ? body.OriginSystem : order.OriginSystem;
+    var destinationSystem = !string.IsNullOrEmpty(body.DestinationSystem) ? body.DestinationSystem : order.DestinationSystem;
+
+    // Get rate based on origin system
+    var rateKey = originSystem == "Jita" ? "jita_rate_per_m3" : "odebeinn_rate_per_m3";
     var haulingRate = decimal.Parse(await users.GetConfigAsync(rateKey, ct));
     var shopperFeePerItem = decimal.Parse(await users.GetConfigAsync("shopper_fee_per_item", ct));
     var shopperFeeMinimum = decimal.Parse(await users.GetConfigAsync("shopper_fee_minimum", ct));
@@ -262,7 +266,7 @@ app.MapPut("/api/orders/{id:long}/items", async (long id, HttpRequest request, C
         EstimatedPrice = i.EstimatedPrice
     }).ToList();
 
-    await orders.ReplaceOrderItemsAsync(id, body.ShopRequested, itemInputs, haulingRate, shopperFeePerItem, shopperFeeMinimum, ct);
+    await orders.ReplaceOrderItemsAsync(id, originSystem, destinationSystem, body.ShopRequested, itemInputs, haulingRate, shopperFeePerItem, shopperFeeMinimum, ct);
     return Results.Ok(new HealthResponse { Status = "updated" });
 });
 

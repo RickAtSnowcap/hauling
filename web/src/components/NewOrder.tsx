@@ -36,6 +36,8 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
   // Load editing order items
   useEffect(() => {
     if (editingOrder) {
+      setOrigin(editingOrder.origin_system);
+      setDestination(editingOrder.destination_system);
       setShopRequested(editingOrder.shop_requested);
       setItems(editingOrder.items.map(i => ({
         type_id: i.type_id,
@@ -181,7 +183,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
     setError('');
     try {
       if (isEditing && editingOrder) {
-        await updateOrderItems(editingOrder.order_id, shopRequested, items);
+        await updateOrderItems(editingOrder.order_id, shopRequested, items, origin, destination);
         onEditComplete?.();
       } else {
         const orderId = await createOrder(shopRequested, items, origin, destination);

@@ -112,12 +112,14 @@ export async function deleteOrder(orderId: number): Promise<void> {
   if (!resp.ok) throw new Error('Failed to delete order');
 }
 
-export async function updateOrderItems(orderId: number, shopRequested: boolean, items: OrderItemInput[]): Promise<void> {
+export async function updateOrderItems(orderId: number, shopRequested: boolean, items: OrderItemInput[], originSystem: string, destinationSystem: string): Promise<void> {
   const resp = await fetch(`${BASE}/api/orders/${orderId}/items`, {
     method: 'PUT',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({
       shop_requested: shopRequested,
+      origin_system: originSystem,
+      destination_system: destinationSystem,
       items: items.map(i => ({
         type_id: i.type_id,
         quantity: i.quantity,
