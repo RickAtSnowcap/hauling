@@ -53,7 +53,7 @@ export default function PricingPage() {
         <ol>
           <li><strong>Place your order</strong> — search for items or paste a fit/inventory list</li>
           <li><strong>A hauler accepts</strong> — they'll be assigned to your order</li>
-          <li><strong>Shop + Haul:</strong> The hauler purchases your items and creates a courier contract</li>
+          <li><strong>Shop + Haul:</strong> The hauler purchases your items and gets the order to Odebeinn</li>
           <li><strong>Haul Only:</strong> You contract your items to the hauler in the origin system</li>
           <li><strong>Delivery</strong> — your items arrive at the destination station</li>
         </ol>
