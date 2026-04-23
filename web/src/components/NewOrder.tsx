@@ -291,9 +291,9 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
                 <th>Item</th>
                 <th>Qty</th>
                 <th>Vol/Unit</th>
-                <th>Line m3</th>
-                <th>Est. Price</th>
-                <th>Line Total</th>
+                <th>Line m³</th>
+                {shopRequested && <th>Est. Price</th>}
+                {shopRequested && <th>Line Total</th>}
                 <th></th>
               </tr>
             </thead>
@@ -307,8 +307,8 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
                   </td>
                   <td>{item.volume_per_unit.toFixed(2)}</td>
                   <td>{formatM3(item.volume_per_unit * item.quantity)}</td>
-                  <td>{formatIsk(item.estimated_price)}</td>
-                  <td>{formatIsk(item.estimated_price * item.quantity)}</td>
+                  {shopRequested && <td>{formatIsk(item.estimated_price)}</td>}
+                  {shopRequested && <td>{formatIsk(item.estimated_price * item.quantity)}</td>}
                   <td><button className="remove-btn" onClick={() => removeItem(item.type_id)}>x</button></td>
                 </tr>
               ))}
@@ -317,10 +317,10 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
 
           <div className="order-totals">
             <div className={`total-row ${overCapacity ? 'over-capacity' : ''}`}><span>Total Volume:</span><span>{formatM3(totalM3)} / {formatM3(maxM3)} m³</span></div>
-            <div className="total-row"><span>Estimated Item Cost:</span><span>{formatIsk(totalEstIsk)} ISK</span></div>
-            <div className="total-row"><span>Hauling Fee ({config?.hauling_rate_per_m3 ?? 0} ISK/m3):</span><span>{formatIsk(haulingFee)} ISK</span></div>
+            {shopRequested && <div className="total-row"><span>Estimated Item Cost:</span><span>{formatIsk(totalEstIsk)} ISK</span></div>}
+            <div className="total-row"><span>Hauling Fee ({config?.hauling_rate_per_m3 ?? 0} ISK/m³):</span><span>{formatIsk(haulingFee)} ISK</span></div>
             {shopRequested && <div className="total-row"><span>Shopper Fee ({config?.shopper_fee_pct ?? 0}%):</span><span>{formatIsk(shopperFee)} ISK</span></div>}
-            <div className="total-row grand-total"><span>Grand Total:</span><span>{formatIsk(grandTotal)} ISK</span></div>
+            <div className="total-row grand-total"><span>{shopRequested ? 'Grand Total:' : 'Total Fee:'}</span><span>{formatIsk(shopRequested ? grandTotal : haulingFee)} ISK</span></div>
           </div>
 
           {overCapacity && <div className="order-error">Order exceeds maximum JF cargo capacity of {formatM3(maxM3)} m³. Remove items or reduce quantities.</div>}

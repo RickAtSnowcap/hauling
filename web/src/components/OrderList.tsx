@@ -139,9 +139,9 @@ export default function OrderList({ user, onEditOrder }: Props) {
               <tr>
                 <th>Item</th>
                 <th>Qty</th>
-                <th>m3</th>
-                <th>Est. Price</th>
-                <th>Actual (per unit)</th>
+                <th>m³</th>
+                {selectedOrder.shop_requested && <th>Est. Price</th>}
+                {selectedOrder.shop_requested && <th>Actual (per unit)</th>}
               </tr>
             </thead>
             <tbody>
@@ -155,28 +155,30 @@ export default function OrderList({ user, onEditOrder }: Props) {
                   </td>
                   <td>{item.quantity}</td>
                   <td>{item.line_m3.toFixed(2)}</td>
-                  <td>{formatIsk(item.estimated_price)}</td>
-                  <td>
-                    {isPrivileged ? (
-                      <span className="actual-price-cell">
-                        <input type="number" step="0.01" defaultValue={item.actual_price ?? ''}
-                          placeholder="per unit"
-                          onBlur={e => handleActualPrice(item.item_id, e.target.value)} />
-                        {savedItemId === item.item_id && <span className="saved-indicator">✓</span>}
-                      </span>
-                    ) : formatIsk(item.actual_price)}
-                  </td>
+                  {selectedOrder.shop_requested && <td>{formatIsk(item.estimated_price)}</td>}
+                  {selectedOrder.shop_requested && (
+                    <td>
+                      {isPrivileged ? (
+                        <span className="actual-price-cell">
+                          <input type="number" step="0.01" defaultValue={item.actual_price ?? ''}
+                            placeholder="per unit"
+                            onBlur={e => handleActualPrice(item.item_id, e.target.value)} />
+                          {savedItemId === item.item_id && <span className="saved-indicator">✓</span>}
+                        </span>
+                      ) : formatIsk(item.actual_price)}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
 
           <div className="detail-totals">
-            <div><span>Total m3:</span><span>{selectedOrder.total_m3.toFixed(2)}</span></div>
-            <div><span>Est. Cost:</span><span>{formatIsk(selectedOrder.total_estimated_isk)} ISK</span></div>
-            {selectedOrder.total_actual_isk !== null && <div><span>Actual Cost:</span><span>{formatIsk(selectedOrder.total_actual_isk)} ISK</span></div>}
+            <div><span>Total m³:</span><span>{selectedOrder.total_m3.toFixed(2)}</span></div>
+            {selectedOrder.shop_requested && <div><span>Est. Cost:</span><span>{formatIsk(selectedOrder.total_estimated_isk)} ISK</span></div>}
+            {selectedOrder.shop_requested && selectedOrder.total_actual_isk !== null && <div><span>Actual Cost:</span><span>{formatIsk(selectedOrder.total_actual_isk)} ISK</span></div>}
             <div><span>Hauling Fee:</span><span>{formatIsk(selectedOrder.hauling_fee)} ISK</span></div>
-            {selectedOrder.shopper_fee > 0 && <div><span>Shopper Fee:</span><span>{formatIsk(selectedOrder.shopper_fee)} ISK</span></div>}
+            {selectedOrder.shop_requested && selectedOrder.shopper_fee > 0 && <div><span>Shopper Fee:</span><span>{formatIsk(selectedOrder.shopper_fee)} ISK</span></div>}
           </div>
 
           <div className="detail-actions">
