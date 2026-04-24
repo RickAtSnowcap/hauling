@@ -75,6 +75,20 @@ public sealed class ItemRepository
             Volume = reader.GetDecimal(2)
         };
     }
+    public async Task InsertAsync(int typeId, string typeName, decimal volume, decimal? packagedVolume, CancellationToken ct)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = new NpgsqlCommand(@"
+            INSERT INTO hauling.eve_types (type_id, type_name, volume, packaged_volume)
+            VALUES (@tid, @name, @vol, @pvol)
+            ON CONFLICT (type_id) DO UPDATE SET type_name = EXCLUDED.type_name, volume = EXCLUDED.volume, packaged_volume = EXCLUDED.packaged_volume", conn);
+        cmd.Parameters.AddWithValue("tid", typeId);
+        cmd.Parameters.AddWithValue("name", typeName);
+        cmd.Parameters.AddWithValue("vol", volume);
+        cmd.Parameters.AddWithValue("pvol", packagedVolume.HasValue ? packagedVolume.Value : DBNull.Value);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
 }
 
 public sealed class ItemResult

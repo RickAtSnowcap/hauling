@@ -29,6 +29,8 @@ builder.Services.AddSingleton(authService);
 builder.Services.AddSingleton(itemRepo);
 builder.Services.AddSingleton(orderRepo);
 builder.Services.AddSingleton(esiMarket);
+var esiResolver = new EsiItemResolver();
+builder.Services.AddSingleton(esiResolver);
 
 var app = builder.Build();
 
@@ -110,10 +112,32 @@ app.MapGet("/api/items/search", async (string q, int? limit, ItemRepository item
     return Results.Ok(results);
 });
 
-// POST /api/items/match — bulk match item names against eve_types
-app.MapPost("/api/items/match", async (List<string> names, ItemRepository items, CancellationToken ct) =>
+// POST /api/items/match — bulk match item names against eve_types, ESI fallback for unknown items
+app.MapPost("/api/items/match", async (List<string> names, ItemRepository items, EsiItemResolver resolver, CancellationToken ct) =>
 {
     var results = await items.MatchNamesAsync(names, ct);
+
+    // Find unmatched names
+    var matchedNames = new HashSet<string>(results.Select(r => r.TypeName.ToLowerInvariant()));
+    var unmatched = names.Where(n => !matchedNames.Contains(n.ToLowerInvariant())).ToList();
+
+    if (unmatched.Count > 0)
+    {
+        // Resolve via ESI
+        var resolved = await resolver.ResolveNamesAsync(unmatched, ct);
+        foreach (var (typeId, name) in resolved)
+        {
+            var info = await resolver.GetTypeInfoAsync(typeId, ct);
+            if (info != null)
+            {
+                // Insert into database for future lookups
+                await items.InsertAsync(info.TypeId, info.TypeName, info.Volume, info.PackagedVolume, ct);
+                var vol = info.PackagedVolume ?? info.Volume;
+                results.Add(new ItemResult { TypeId = info.TypeId, TypeName = info.TypeName, Volume = vol });
+            }
+        }
+    }
+
     return Results.Ok(results);
 });
 
