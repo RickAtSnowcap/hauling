@@ -31,6 +31,9 @@ builder.Services.AddSingleton(orderRepo);
 builder.Services.AddSingleton(esiMarket);
 var esiResolver = new EsiItemResolver();
 builder.Services.AddSingleton(esiResolver);
+var discordWebhook = Environment.GetEnvironmentVariable("DISCORD_WEBHOOK_HAULING") ?? "";
+var discord = new DiscordNotifier(discordWebhook);
+builder.Services.AddSingleton(discord);
 
 var app = builder.Build();
 
@@ -194,6 +197,14 @@ app.MapPost("/api/orders", async (HttpRequest request, CreateOrderRequest body, 
 
     var orderId = await orders.CreateOrderAsync(claims.CharacterId, body.OriginSystem, body.DestinationSystem,
         body.ShopRequested, items, haulingRate, shopperFeePerItem, shopperFeeMinimum, ct);
+
+    // Notify Discord
+    var orderM3 = items.Sum(i => i.VolumePerUnit * i.Quantity);
+    var hFee = orderM3 * haulingRate;
+    var sFee = body.ShopRequested ? Math.Max(items.Count * shopperFeePerItem, shopperFeeMinimum) : 0;
+    _ = discord.NotifyNewOrderAsync(orderId, claims.CharacterName, body.OriginSystem, body.DestinationSystem,
+        body.ShopRequested, orderM3, hFee, sFee, items.Count);
+
     return Results.Created($"/api/orders/{orderId}", new OrderCreatedResponse { OrderId = orderId });
 });
 
