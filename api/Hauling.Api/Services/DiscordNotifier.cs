@@ -30,7 +30,7 @@ public sealed class DiscordNotifier
         if (shopRequested)
             description += $"\nShopper Fee: {shopperFee:N0} ISK\nTotal: {feeTotal:N0} ISK";
 
-        var json = "{\"embeds\":[{"
+        var json = "{\"username\":\"Angry Hauling\",\"embeds\":[{"
             + "\"title\":\"New Hauling Order\","
             + "\"description\":\"" + EscapeJson(description) + "\","
             + "\"color\":15158332,"
