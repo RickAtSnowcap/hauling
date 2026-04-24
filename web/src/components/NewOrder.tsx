@@ -262,7 +262,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
       )}
 
       <div className="pricing-link">
-        <a href="/hauling/pricing" target="_blank">How are fees calculated?</a>
+        <a href="/hauling/pricing">How are fees calculated?</a>
       </div>
 
       <div className="route-selection">
