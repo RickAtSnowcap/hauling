@@ -58,7 +58,14 @@ export function parseContainerContents(text: string): ParsedItem[] {
       qty = parseInt(cols[1].trim().replace(/,/g, '')) || 1;
     }
 
-    items.push({ name, quantity: qty });
+    // Normalize player corpses to generic "Corpse"
+    const corpseName = name.endsWith("'s Frozen Corpse") ? "Corpse" : name;
+    const existing = items.find(i => i.name === corpseName);
+    if (existing) {
+      existing.quantity += qty;
+    } else {
+      items.push({ name: corpseName, quantity: qty });
+    }
   }
 
   return items;

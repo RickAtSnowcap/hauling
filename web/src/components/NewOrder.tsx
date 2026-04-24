@@ -101,7 +101,19 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
         return;
       }
 
-      const uniqueNames = [...new Set(parsed.map(p => p.name))];
+      // Handle special items that aren't in the SDE
+      const specialItems: { name: string; type_id: number; volume: number; qty: number }[] = [];
+      const normalParsed = parsed.filter(p => {
+        if (p.name === 'Corpse') {
+          const existing = specialItems.find(s => s.name === 'Corpse');
+          if (existing) existing.qty += p.quantity;
+          else specialItems.push({ name: 'Corpse', type_id: 25, volume: 2, qty: p.quantity });
+          return false;
+        }
+        return true;
+      });
+
+      const uniqueNames = [...new Set(normalParsed.map(p => p.name))];
       const matched = await matchItems(uniqueNames);
 
       // Build a map of matched names (case-insensitive)
@@ -113,7 +125,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
       const unmatched: string[] = [];
       const toAdd: { item: ItemResult; qty: number }[] = [];
 
-      for (const p of parsed) {
+      for (const p of normalParsed) {
         const found = matchMap.get(p.name.toLowerCase());
         if (found) {
           const existing = toAdd.find(a => a.item.type_id === found.type_id);
@@ -141,6 +153,22 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
             quantity: qty,
             volume_per_unit: item.volume,
             estimated_price: price
+          });
+        }
+      }
+
+      // Add special items (corpses etc.)
+      for (const special of specialItems) {
+        const existingIdx = newItems.findIndex(i => i.type_name === special.name);
+        if (existingIdx >= 0) {
+          newItems[existingIdx] = { ...newItems[existingIdx], quantity: newItems[existingIdx].quantity + special.qty };
+        } else {
+          newItems.push({
+            type_id: special.type_id,
+            type_name: special.name,
+            quantity: special.qty,
+            volume_per_unit: special.volume,
+            estimated_price: 0
           });
         }
       }
