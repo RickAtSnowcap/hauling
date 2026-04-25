@@ -196,7 +196,7 @@ app.MapPost("/api/orders", async (HttpRequest request, CreateOrderRequest body, 
         return Results.BadRequest(new ErrorResponse { Error = $"Order exceeds maximum capacity of {maxM3:N0} m³ ({totalM3:N2} m³ requested)" });
 
     var orderId = await orders.CreateOrderAsync(claims.CharacterId, body.OriginSystem, body.DestinationSystem,
-        body.ShopRequested, items, haulingRate, shopperFeePerItem, shopperFeeMinimum, ct);
+        body.ShopRequested, body.Notes, items, haulingRate, shopperFeePerItem, shopperFeeMinimum, ct);
 
     // Notify Discord
     var orderM3 = items.Sum(i => i.VolumePerUnit * i.Quantity);
@@ -301,7 +301,7 @@ app.MapPut("/api/orders/{id:long}/items", async (long id, HttpRequest request, C
         EstimatedPrice = i.EstimatedPrice
     }).ToList();
 
-    await orders.ReplaceOrderItemsAsync(id, originSystem, destinationSystem, body.ShopRequested, itemInputs, haulingRate, shopperFeePerItem, shopperFeeMinimum, ct);
+    await orders.ReplaceOrderItemsAsync(id, originSystem, destinationSystem, body.ShopRequested, body.Notes, itemInputs, haulingRate, shopperFeePerItem, shopperFeeMinimum, ct);
     return Results.Ok(new HealthResponse { Status = "updated" });
 });
 
@@ -379,6 +379,7 @@ public sealed class CreateOrderRequest
     public string OriginSystem { get; set; } = "";
     public string DestinationSystem { get; set; } = "";
     public bool ShopRequested { get; set; }
+    public string Notes { get; set; } = "";
     public List<CreateOrderItemRequest> Items { get; set; } = new();
 }
 public sealed class CreateOrderItemRequest

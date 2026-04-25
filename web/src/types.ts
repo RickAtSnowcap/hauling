@@ -42,6 +42,7 @@ export interface OrderSummary {
   destination_system: string;
   assigned_to: number | null;
   assigned_to_name: string | null;
+  notes: string;
 }
 
 export interface OrderItemDetail {

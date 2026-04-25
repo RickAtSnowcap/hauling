@@ -24,6 +24,30 @@
   font-style: italic;
 }
 
+.notes-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  font-family: 'Open Sans', sans-serif;
+  font-size: 0.85rem;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.notes-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.notes-input::placeholder {
+  color: var(--text-muted);
+}
+
 .input-mode-bar {
   display: flex;
   gap: 0;

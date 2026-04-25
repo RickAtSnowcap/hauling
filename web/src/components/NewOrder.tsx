@@ -21,6 +21,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [notes, setNotes] = useState('');
   const [inputMode, setInputMode] = useState<'search' | 'paste'>('search');
   const [pasteText, setPasteText] = useState('');
   const [fitCopies, setFitCopies] = useState(1);
@@ -39,6 +40,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
       setOrigin(editingOrder.origin_system);
       setDestination(editingOrder.destination_system);
       setShopRequested(editingOrder.shop_requested);
+      setNotes(editingOrder.notes || '');
       setItems(editingOrder.items.map(i => ({
         type_id: i.type_id,
         type_name: i.type_name,
@@ -230,12 +232,13 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
     setError('');
     try {
       if (isEditing && editingOrder) {
-        await updateOrderItems(editingOrder.order_id, shopRequested, items, origin, destination);
+        await updateOrderItems(editingOrder.order_id, shopRequested, items, origin, destination, notes);
         onEditComplete?.();
       } else {
-        const orderId = await createOrder(shopRequested, items, origin, destination);
+        const orderId = await createOrder(shopRequested, items, origin, destination, notes);
         setSuccess(orderId);
         setItems([]);
+        setNotes('');
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to submit order');
@@ -310,6 +313,19 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
           </label>
         </div>
       )}
+
+      <textarea
+        className="notes-input"
+        placeholder="Add notes for the hauler (optional)"
+        value={notes}
+        onChange={e => {
+          setNotes(e.target.value);
+          e.target.style.height = 'auto';
+          e.target.style.height = e.target.scrollHeight + 'px';
+        }}
+        rows={2}
+        maxLength={4000}
+      />
 
       <div className="input-mode-bar">
         <button className={inputMode === 'search' ? 'active' : ''} onClick={() => { setInputMode('search'); setPasteText(''); }}>Search Items</button>

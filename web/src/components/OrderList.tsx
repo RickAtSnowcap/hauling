@@ -138,6 +138,13 @@ export default function OrderList({ user, onEditOrder }: Props) {
             <span>Created: {formatDate(selectedOrder.created_at)}</span>
           </div>
 
+          {selectedOrder.notes && (
+            <div className="order-notes">
+              <span className="notes-label">Notes:</span>
+              <p>{selectedOrder.notes}</p>
+            </div>
+          )}
+
           {selectedOrder.shop_requested && isPrivileged && (
             <button className="copy-list-btn" onClick={() => {
               const text = selectedOrder.items.map(i => `${i.type_name} ${i.quantity}`).join('\n');

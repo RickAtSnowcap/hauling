@@ -56,7 +56,7 @@ export async function getConfig(): Promise<ConfigResponse> {
   return resp.json();
 }
 
-export async function createOrder(shopRequested: boolean, items: OrderItemInput[], originSystem: string, destinationSystem: string): Promise<number> {
+export async function createOrder(shopRequested: boolean, items: OrderItemInput[], originSystem: string, destinationSystem: string, notes: string): Promise<number> {
   const resp = await authFetch(`${BASE}/api/orders`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
@@ -64,6 +64,7 @@ export async function createOrder(shopRequested: boolean, items: OrderItemInput[
       shop_requested: shopRequested,
       origin_system: originSystem,
       destination_system: destinationSystem,
+      notes,
       items: items.map(i => ({
         type_id: i.type_id,
         quantity: i.quantity,
@@ -125,7 +126,7 @@ export async function deleteOrder(orderId: number): Promise<void> {
   if (!resp.ok) throw new Error('Failed to delete order');
 }
 
-export async function updateOrderItems(orderId: number, shopRequested: boolean, items: OrderItemInput[], originSystem: string, destinationSystem: string): Promise<void> {
+export async function updateOrderItems(orderId: number, shopRequested: boolean, items: OrderItemInput[], originSystem: string, destinationSystem: string, notes: string): Promise<void> {
   const resp = await authFetch(`${BASE}/api/orders/${orderId}/items`, {
     method: 'PUT',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
@@ -133,6 +134,7 @@ export async function updateOrderItems(orderId: number, shopRequested: boolean, 
       shop_requested: shopRequested,
       origin_system: originSystem,
       destination_system: destinationSystem,
+      notes,
       items: items.map(i => ({
         type_id: i.type_id,
         quantity: i.quantity,
