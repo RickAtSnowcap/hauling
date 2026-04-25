@@ -21,7 +21,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<number | null>(null);
   const [error, setError] = useState('');
-  const [inputMode, setInputMode] = useState<'search' | 'fit' | 'inventory'>('search');
+  const [inputMode, setInputMode] = useState<'search' | 'paste'>('search');
   const [pasteText, setPasteText] = useState('');
   const [fitCopies, setFitCopies] = useState(1);
   const [importing, setImporting] = useState(false);
@@ -57,6 +57,23 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
+  // Fetch prices retroactively when Personal Shopper is toggled on
+  useEffect(() => {
+    if (!shopRequested || items.length === 0) return;
+    const needsPrices = items.filter(i => i.estimated_price === 0 && i.type_id > 0);
+    if (needsPrices.length === 0) return;
+
+    (async () => {
+      const updated = [...items];
+      for (const item of needsPrices) {
+        const price = await getJitaPrice(item.type_id);
+        const idx = updated.findIndex(i => i.type_id === item.type_id);
+        if (idx >= 0) updated[idx] = { ...updated[idx], estimated_price: price };
+      }
+      setItems(updated);
+    })();
+  }, [shopRequested]);
+
   function handleSearch(q: string) {
     setSearchQuery(q);
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -89,10 +106,12 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
     setUnmatchedItems([]);
 
     try {
-      const raw = inputMode === 'fit'
+      // Auto-detect format: starts with [ = Pyfa fit, contains tabs = inventory
+      const isFit = pasteText.trimStart().startsWith('[');
+      const raw = isFit
         ? parsePyfaFit(pasteText)
         : parseContainerContents(pasteText);
-      const multiplier = inputMode === 'fit' ? fitCopies : 1;
+      const multiplier = isFit ? fitCopies : 1;
       const parsed = raw.map(p => ({ ...p, quantity: p.quantity * multiplier }));
 
       if (parsed.length === 0) {
@@ -294,8 +313,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
 
       <div className="input-mode-bar">
         <button className={inputMode === 'search' ? 'active' : ''} onClick={() => { setInputMode('search'); setPasteText(''); }}>Search Items</button>
-        <button className={inputMode === 'fit' ? 'active' : ''} onClick={() => { setInputMode('fit'); setPasteText(''); }}>Paste Fit</button>
-        <button className={inputMode === 'inventory' ? 'active' : ''} onClick={() => { setInputMode('inventory'); setPasteText(''); }}>Paste Inventory</button>
+        <button className={inputMode === 'paste' ? 'active' : ''} onClick={() => { setInputMode('paste'); setPasteText(''); }}>Paste Fit or Inventory</button>
       </div>
 
       {inputMode === 'search' && (
@@ -320,17 +338,15 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
         </div>
       )}
 
-      {(inputMode === 'fit' || inputMode === 'inventory') && (
+      {inputMode === 'paste' && (
         <div className="paste-area">
           <textarea
             rows={10}
-            placeholder={inputMode === 'fit'
-              ? 'Paste EFT/Pyfa fit here...\n\n[ShipName, FitName]\nModule I\nModule II, Ammo\nItem x10'
-              : 'Paste inventory contents here...\n\nItem Name\t1,000\nAnother Item\t50'}
+            placeholder={'Paste a Pyfa/EFT fit or inventory contents here...\n\nFits: [ShipName, FitName] followed by modules\nInventory: tab-delimited item list from EVE'}
             value={pasteText}
             onChange={e => setPasteText(e.target.value)}
           />
-          {inputMode === 'fit' && (
+          {pasteText.trimStart().startsWith('[') && (
             <div className="fit-copies">
               <label>Copies:</label>
               <input type="number" min={1} value={fitCopies} onChange={e => setFitCopies(Math.max(1, parseInt(e.target.value) || 1))} />
