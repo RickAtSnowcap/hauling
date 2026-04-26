@@ -62,7 +62,7 @@ app.MapGet("/callback", async (string? code, string? state, EveSsoService sso, U
     var requiredAlliance = await repo.GetConfigAsync("alliance_id", ct);
     if (string.IsNullOrEmpty(requiredAlliance) || charInfo.AllianceId?.ToString() != requiredAlliance)
     {
-        return Results.Redirect($"/hauling/?denied={Uri.EscapeDataString(charInfo.CharacterName)}");
+        return Results.Redirect($"/?denied={Uri.EscapeDataString(charInfo.CharacterName)}");
     }
 
     // Upsert user
@@ -72,7 +72,7 @@ app.MapGet("/callback", async (string? code, string? state, EveSsoService sso, U
     var token = auth.CreateToken(user.CharacterId, user.CharacterName, user.Role);
 
     // Redirect to frontend with token
-    return Results.Redirect($"/hauling/?token={token}");
+    return Results.Redirect($"/?token={token}");
 });
 
 // Get current user info from JWT

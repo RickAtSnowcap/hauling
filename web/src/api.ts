@@ -1,6 +1,6 @@
 import type { ItemResult, PriceResponse, ConfigResponse, OrderSummary, OrderDetail, UserInfo, OrderItemInput } from './types';
 
-const BASE = '/hauling';
+const BASE = '';
 
 function getToken(): string | null {
   return sessionStorage.getItem('hauling_token');
@@ -14,7 +14,7 @@ function authHeaders(): Record<string, string> {
 function checkAuth(resp: Response): Response {
   if (resp.status === 401) {
     sessionStorage.removeItem('hauling_token');
-    window.location.href = '/hauling/';
+    window.location.href = '/';
   }
   return resp;
 }

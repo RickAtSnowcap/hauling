@@ -67,7 +67,7 @@ export default function PricingPage() {
         </ul>
       </section>
 
-      <p className="pricing-back"><a href="/hauling/">← Back to Angry Hauling</a></p>
+      <p className="pricing-back"><a href="/">← Back to Angry Hauling</a></p>
     </div>
   );
 }
