@@ -316,7 +316,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
           <label className="shop-toggle">
             <input type="checkbox" checked={shopRequested} onChange={e => setShopRequested(e.target.checked)} />
             <span>Personal Shopper</span>
-            <span className="shop-hint">{shopRequested ? 'We buy items for you (per-item fee)' : 'You provide items at origin, we haul'}</span>
+            <span className="shop-hint">{shopRequested ? 'Enabled: We buy items for you (per-item fee)' : 'Disabled: You provide items at origin, we haul'}</span>
           </label>
         </div>
       )}
