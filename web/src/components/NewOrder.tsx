@@ -21,6 +21,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
   const [notes, setNotes] = useState('');
   const [inputMode, setInputMode] = useState<'search' | 'paste'>('search');
   const [pasteText, setPasteText] = useState('');
@@ -88,7 +89,13 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
   }
 
   async function addItem(item: ItemResult) {
-    if (items.some(i => i.type_id === item.type_id)) return;
+    if (items.some(i => i.type_id === item.type_id)) {
+      setWarning(`${item.type_name} is already in the order. Adjust the quantity instead.`);
+      setTimeout(() => setWarning(''), 3000);
+      setShowResults(false);
+      setSearchQuery('');
+      return;
+    }
     setShowResults(false);
     setSearchQuery('');
     const price = shopRequested ? await getJitaPrice(item.type_id) : 0;
@@ -326,6 +333,8 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
         rows={2}
         maxLength={4000}
       />
+
+      {warning && <div className="order-warning">{warning}</div>}
 
       <div className="input-mode-bar">
         <button className={inputMode === 'search' ? 'active' : ''} onClick={() => { setInputMode('search'); setPasteText(''); }}>Search Items</button>
