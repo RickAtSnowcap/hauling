@@ -145,14 +145,14 @@ export default function OrderList({ user, onEditOrder }: Props) {
             </div>
           )}
 
-          {selectedOrder.shop_requested && isPrivileged && (
+          {isPrivileged && (
             <button className="copy-list-btn" onClick={() => {
               const text = selectedOrder.items.map(i => `${i.type_name} ${i.quantity}`).join('\n');
               copyText(text);
               setCopiedList(true);
               setTimeout(() => setCopiedList(false), 2000);
             }}>
-              {copiedList ? '✓ Copied' : 'Copy Shopping List'}
+              {copiedList ? '✓ Copied' : 'Copy Order'}
             </button>
           )}
 
