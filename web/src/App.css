@@ -67,3 +67,12 @@
   color: var(--text-primary);
   border-color: var(--text-secondary);
 }
+
+.app-footer {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}

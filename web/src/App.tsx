@@ -12,7 +12,7 @@ function App() {
   const [denied, setDenied] = useState('');
 
   const isPricing = /\/pricing\/?$/.test(window.location.pathname);
-  if (isPricing) return <PricingPage />;
+  if (isPricing) return <><PricingPage /><Footer /></>;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -42,10 +42,10 @@ function App() {
     setUser(null);
   }
 
-  if (loading) return <div className="loading">Loading...</div>;
-  if (denied) return <DeniedPage characterName={denied} onBack={() => setDenied('')} />;
-  if (!user) return <LoginPage />;
-  return <MainPage user={user} onLogout={handleLogout} />;
+  if (loading) return <><div className="loading">Loading...</div><Footer /></>;
+  if (denied) return <><DeniedPage characterName={denied} onBack={() => setDenied('')} /><Footer /></>;
+  if (!user) return <><LoginPage /><Footer /></>;
+  return <><MainPage user={user} onLogout={handleLogout} /><Footer /></>;
 }
 
 function DeniedPage({ characterName, onBack }: { characterName: string; onBack: () => void }) {
@@ -63,6 +63,14 @@ function DeniedPage({ characterName, onBack }: { characterName: string; onBack: 
         <button className="denied-btn" onClick={onBack}>Back to Login</button>
       </div>
     </div>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="app-footer">
+      Issues? Contact <strong>Bendigo Xana</strong> in game or via Discord message.
+    </footer>
   );
 }
 
