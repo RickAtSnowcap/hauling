@@ -225,9 +225,8 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
   const totalEstIsk = items.reduce((sum, i) => sum + i.estimated_price * i.quantity, 0);
   const ratePerM3 = origin === 'Jita' ? (config?.jita_rate_per_m3 ?? 1050) : (config?.odebeinn_rate_per_m3 ?? 650);
   const haulingFee = totalM3 * ratePerM3;
-  const itemCount = items.length;
   const shopperFee = shopRequested && config
-    ? Math.max(itemCount * config.shopper_fee_per_item, config.shopper_fee_minimum)
+    ? config.shopper_fee_minimum
     : 0;
   const grandTotal = (shopRequested ? totalEstIsk : 0) + haulingFee + shopperFee;
   const maxM3 = config?.max_order_m3 ?? 300000;
@@ -419,7 +418,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
             <div className={`total-row ${overCapacity ? 'over-capacity' : ''}`}><span>Total Volume:</span><span>{formatM3(totalM3)} / {formatM3(maxM3)} m³</span></div>
             {shopRequested && <div className="total-row"><span>Estimated Item Cost:</span><span>{formatIsk(totalEstIsk)} ISK</span></div>}
             <div className="total-row"><span>Hauling Fee ({origin === 'Jita' ? config?.jita_rate_per_m3 : config?.odebeinn_rate_per_m3} ISK/m³):</span><span>{formatIsk(haulingFee)} ISK</span></div>
-            {shopRequested && <div className="total-row"><span>Shopper Fee ({itemCount} items × {formatIsk(config?.shopper_fee_per_item ?? 0)} ISK, min {formatIsk(config?.shopper_fee_minimum ?? 0)}):</span><span>{formatIsk(shopperFee)} ISK</span></div>}
+            {shopRequested && <div className="total-row"><span>Shopper Fee (flat):</span><span>{formatIsk(shopperFee)} ISK</span></div>}
             <div className="total-row grand-total"><span>{shopRequested ? 'Grand Total:' : 'Total Fee:'}</span><span>{formatIsk(shopRequested ? grandTotal : haulingFee)} ISK</span></div>
           </div>
 

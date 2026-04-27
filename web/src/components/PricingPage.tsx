@@ -31,12 +31,10 @@ export default function PricingPage() {
 
       <section>
         <h2>Personal Shopper</h2>
-        <p>If you'd like us to purchase items for you in Jita, we charge a flat fee per line item to cover shopping time.</p>
+        <p>If you'd like us to purchase items for you in Jita, we charge a flat fee to cover shopping time.</p>
         <ul>
-          <li><strong>1,000,000 ISK</strong> per distinct item in your order</li>
-          <li><strong>10,000,000 ISK</strong> minimum shopper fee</li>
+          <li><strong>10,000,000 ISK</strong> flat shopper fee per order</li>
         </ul>
-        <p>Example: An order with 15 different items = 15,000,000 ISK shopper fee.</p>
         <p>If you don't need shopping, select <strong>"Haul Only"</strong> and contract your items to the assigned hauler in the origin system.</p>
       </section>
 

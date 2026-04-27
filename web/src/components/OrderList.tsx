@@ -295,7 +295,14 @@ export default function OrderList({ user, onEditOrder }: Props) {
             {selectedOrder.shop_requested && <div><span>Est. Cost:</span><span>{formatIsk(selectedOrder.total_estimated_isk)} ISK</span></div>}
             {selectedOrder.shop_requested && selectedOrder.total_actual_isk !== null && <div><span>Actual Cost:</span><span>{formatIsk(selectedOrder.total_actual_isk)} ISK</span></div>}
             <div><span>Hauling Fee:</span><span>{formatIsk(selectedOrder.hauling_fee)} ISK</span></div>
-            {selectedOrder.shop_requested && selectedOrder.shopper_fee > 0 && <div><span>Shopper Fee:</span><span>{formatIsk(selectedOrder.shopper_fee)} ISK</span></div>}
+            {selectedOrder.shop_requested && selectedOrder.shopper_fee > 0 && <div><span>Shopper Fee (flat):</span><span>{formatIsk(selectedOrder.shopper_fee)} ISK</span></div>}
+            {['picking_up', 'in_transit', 'delivered'].includes(selectedOrder.status) && (
+              <div className="total-row grand-total"><span>Delivery Contract Amount:</span><span>{formatIsk(
+                selectedOrder.shop_requested
+                  ? (selectedOrder.total_actual_isk ?? selectedOrder.total_estimated_isk) + selectedOrder.hauling_fee + selectedOrder.shopper_fee
+                  : selectedOrder.hauling_fee
+              )} ISK</span></div>
+            )}
           </div>
 
           <div className="detail-actions">
