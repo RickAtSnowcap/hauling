@@ -108,6 +108,12 @@ export async function updateActualPrice(itemId: number, actualPrice: number): Pr
   if (!resp.ok) throw new Error('Failed to update price');
 }
 
+export async function batchUpdateActualPrices(updates: { itemId: number; actualPrice: number }[]): Promise<void> {
+  for (const { itemId, actualPrice } of updates) {
+    await updateActualPrice(itemId, actualPrice);
+  }
+}
+
 export async function matchItems(names: string[]): Promise<ItemResult[]> {
   const resp = await authFetch(`${BASE}/api/items/match`, {
     method: 'POST',

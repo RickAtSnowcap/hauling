@@ -43,6 +43,40 @@ export function parsePyfaFit(text: string): ParsedItem[] {
   return Array.from(items.entries()).map(([name, quantity]) => ({ name, quantity }));
 }
 
+export interface ParsedTransaction {
+  name: string;
+  unitPrice: number;
+}
+
+export function parseTransactionLog(text: string): Map<string, number> {
+  // Returns map of item name → highest unit price
+  const prices = new Map<string, number>();
+  const lines = text.trim().split('\n');
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const cols = line.split('\t');
+    // Columns: Date, Qty, Item Name, Unit Price, Total Price, Seller, Station
+    if (cols.length < 4) continue;
+
+    const name = cols[2]?.trim();
+    if (!name) continue;
+
+    // Parse unit price — remove "ISK" suffix and commas
+    const priceStr = cols[3]?.trim().replace(/\s*ISK\s*$/, '').replace(/,/g, '');
+    const price = parseFloat(priceStr);
+    if (isNaN(price) || price <= 0) continue;
+
+    // Keep highest price per item
+    const existing = prices.get(name);
+    if (!existing || price > existing) {
+      prices.set(name, price);
+    }
+  }
+
+  return prices;
+}
+
 export function parseContainerContents(text: string): ParsedItem[] {
   const lines = text.trim().split('\n');
   const items: ParsedItem[] = [];

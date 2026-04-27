@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { copyText } from '../copyText';
+import { parseTransactionLog } from '../parsers';
 import type { UserInfo, OrderSummary, OrderDetail } from '../types';
 import { listOrders, getOrder, updateOrderStatus, updateActualPrice, deleteOrder, assignHauler, listHaulers } from '../api';
 import type { HaulerInfo } from '../api';
@@ -31,6 +32,10 @@ export default function OrderList({ user, onEditOrder }: Props) {
   const [haulers, setHaulers] = useState<HaulerInfo[]>([]);
   const [copiedItemId, setCopiedItemId] = useState<number | null>(null);
   const [copiedList, setCopiedList] = useState(false);
+  const [showTxPaste, setShowTxPaste] = useState(false);
+  const [txPasteText, setTxPasteText] = useState('');
+  const [txProcessing, setTxProcessing] = useState(false);
+  const [txResult, setTxResult] = useState<{ updated: number; missing: string[] } | null>(null);
 
   const isPrivileged = user.role === 'hauler' || user.role === 'admin';
   const isAdmin = user.role === 'admin';
@@ -97,6 +102,40 @@ export default function OrderList({ user, onEditOrder }: Props) {
       && (order.status === 'pending' || order.status === 'accepted');
   };
 
+  async function handleTransactionPaste() {
+    if (!selectedOrder || !txPasteText.trim()) return;
+    setTxProcessing(true);
+    setTxResult(null);
+
+    try {
+      const prices = parseTransactionLog(txPasteText);
+      let updated = 0;
+      const missing: string[] = [];
+
+      for (const item of selectedOrder.items) {
+        const price = prices.get(item.type_name);
+        if (price !== undefined) {
+          await updateActualPrice(item.item_id, price);
+          updated++;
+        } else {
+          missing.push(item.type_name);
+        }
+      }
+
+      setTxResult({ updated, missing });
+      setTxPasteText('');
+      setShowTxPaste(false);
+
+      // Refresh order detail
+      setSelectedOrder(await getOrder(selectedOrder.order_id));
+      await loadOrders();
+    } catch {
+      // handle error
+    } finally {
+      setTxProcessing(false);
+    }
+  }
+
   if (loading) return <div>Loading orders...</div>;
 
   return (
@@ -154,6 +193,42 @@ export default function OrderList({ user, onEditOrder }: Props) {
             }}>
               {copiedList ? '✓ Copied' : 'Copy Order'}
             </button>
+          )}
+
+          {isPrivileged && selectedOrder.shop_requested && (
+            <>
+              <button className="copy-list-btn" onClick={() => setShowTxPaste(!showTxPaste)}>
+                {showTxPaste ? 'Cancel' : 'Paste Transactions'}
+              </button>
+              {showTxPaste && (
+                <div className="tx-paste-area">
+                  <textarea
+                    rows={6}
+                    placeholder="Paste your market transaction log here..."
+                    value={txPasteText}
+                    onChange={e => setTxPasteText(e.target.value)}
+                  />
+                  <button className="tx-apply-btn" onClick={handleTransactionPaste} disabled={txProcessing || !txPasteText.trim()}>
+                    {txProcessing ? 'Applying...' : 'Apply Prices'}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+
+          {txResult && (
+            <div className={`tx-result ${txResult.missing.length > 0 ? 'has-missing' : ''}`}>
+              <span>Updated {txResult.updated} item(s).</span>
+              {txResult.missing.length > 0 && (
+                <>
+                  <span className="tx-missing-label"> Missing {txResult.missing.length} item(s):</span>
+                  <ul className="tx-missing-list">
+                    {txResult.missing.map((name, i) => <li key={i}>{name}</li>)}
+                  </ul>
+                </>
+              )}
+              <button className="tx-dismiss" onClick={() => setTxResult(null)}>Dismiss</button>
+            </div>
           )}
 
           <table className="detail-table">
