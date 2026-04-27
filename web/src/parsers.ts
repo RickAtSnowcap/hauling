@@ -19,6 +19,7 @@ export function parsePyfaFit(text: string): ParsedItem[] {
   for (let i = 1; i < lines.length; i++) {
     let line = lines[i].trim();
     if (!line) continue;
+    if (line.startsWith('[Empty ')) continue;
 
     // Check for xN quantity suffix
     let qty = 1;
