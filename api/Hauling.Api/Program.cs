@@ -245,7 +245,7 @@ app.MapPut("/api/orders/{id:long}/status", async (long id, HttpRequest request, 
         return Results.Json(new ErrorResponse { Error = "Only haulers and admins can update order status" },
             HaulingJsonContext.Default.ErrorResponse, statusCode: 403);
 
-    var validStatuses = new[] { "pending", "accepted", "in_transit", "delivered", "cancelled" };
+    var validStatuses = new[] { "pending", "accepted", "picking_up", "in_transit", "delivered", "cancelled" };
     if (!validStatuses.Contains(body.Status))
         return Results.BadRequest(new ErrorResponse { Error = $"Invalid status. Must be one of: {string.Join(", ", validStatuses)}" });
 

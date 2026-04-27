@@ -51,6 +51,7 @@
 
 .status-pending { background: rgba(243, 156, 18, 0.2); color: var(--status-pending); }
 .status-accepted { background: rgba(52, 152, 219, 0.2); color: var(--status-accepted); }
+.status-picking-up { background: rgba(230, 126, 34, 0.2); color: var(--status-picking-up); }
 .status-in-transit { background: rgba(155, 89, 182, 0.2); color: var(--status-in-transit); }
 .status-delivered { background: rgba(46, 204, 113, 0.2); color: var(--status-delivered); }
 .status-cancelled { background: rgba(127, 140, 141, 0.2); color: var(--status-cancelled); }

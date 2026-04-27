@@ -16,6 +16,7 @@
   --border-radius: 8px;
   --status-pending: #f39c12;
   --status-accepted: #3498db;
+  --status-picking-up: #e67e22;
   --status-in-transit: #9b59b6;
   --status-delivered: #2ecc71;
   --status-cancelled: #7f8c8d;

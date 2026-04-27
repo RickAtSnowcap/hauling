@@ -207,7 +207,7 @@ export default function OrderList({ user, onEditOrder }: Props) {
             {isPrivileged && (
               <div className="status-radios">
                 <span className="status-label">Status:</span>
-                {['pending', 'accepted', 'in_transit', 'delivered', 'cancelled'].map(s => (
+                {['pending', 'accepted', 'picking_up', 'in_transit', 'delivered', 'cancelled'].map(s => (
                   <label key={s} className="status-radio">
                     <input type="radio" name="order-status" checked={selectedOrder.status === s}
                       onChange={() => handleStatusUpdate(selectedOrder.order_id, s)} />
