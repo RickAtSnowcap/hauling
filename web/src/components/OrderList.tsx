@@ -182,9 +182,29 @@ export default function OrderList({ user, onEditOrder }: Props) {
                     <td>
                       {isPrivileged ? (
                         <span className="actual-price-cell">
-                          <input type="number" step="0.01" defaultValue={item.actual_price ?? ''}
+                          <input
+                            className="actual-input"
+                            data-item-id={item.item_id}
+                            defaultValue={item.actual_price != null ? formatIsk(item.actual_price) : ''}
                             placeholder="per unit"
-                            onBlur={e => handleActualPrice(item.item_id, e.target.value)} />
+                            onFocus={e => { e.target.value = e.target.value.replace(/,/g, ''); }}
+                            onBlur={e => {
+                              const raw = e.target.value.replace(/,/g, '');
+                              handleActualPrice(item.item_id, raw);
+                              const num = parseFloat(raw);
+                              if (!isNaN(num) && num > 0) e.target.value = formatIsk(num);
+                            }}
+                            onKeyDown={e => {
+                              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                                e.preventDefault();
+                                (e.target as HTMLInputElement).blur();
+                                const inputs = Array.from(document.querySelectorAll('.actual-input'));
+                                const idx = inputs.indexOf(e.target as Element);
+                                const next = e.key === 'ArrowDown' ? idx + 1 : idx - 1;
+                                if (next >= 0 && next < inputs.length) (inputs[next] as HTMLInputElement).focus();
+                              }
+                            }}
+                          />
                           {savedItemId === item.item_id && <span className="saved-indicator">✓</span>}
                         </span>
                       ) : formatIsk(item.actual_price)}

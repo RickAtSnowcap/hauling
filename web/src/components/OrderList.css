@@ -138,7 +138,7 @@
   font-size: 0.85rem;
 }
 
-.detail-table input[type="number"] {
+.actual-input {
   width: 130px;
   padding: 4px 8px;
   background: var(--bg-input);
@@ -147,6 +147,7 @@
   border-radius: 4px;
   font-family: 'Open Sans', sans-serif;
   font-size: 0.85rem;
+  text-align: right;
 }
 
 .detail-totals {
