@@ -268,11 +268,19 @@ public sealed class OrderRepository
         var haulingFee = totalM3 * haulingRate;
         var shopperFee = shopRequested ? Math.Max(items.Count * shopperFeePerItem, shopperFeeMinimum) : 0;
 
+        // Recalculate total_actual_isk from carried-over actual prices
+        await using var actualCmd = new NpgsqlCommand(
+            "SELECT COALESCE(SUM(actual_price * quantity), NULL) FROM hauling.order_items WHERE order_id = @oid AND actual_price IS NOT NULL", conn, tx);
+        actualCmd.Parameters.AddWithValue("oid", orderId);
+        var actualResult = await actualCmd.ExecuteScalarAsync(ct);
+        var totalActualIsk = actualResult is DBNull || actualResult == null ? (decimal?)null : Convert.ToDecimal(actualResult);
+
         await using var updateCmd = new NpgsqlCommand(@"
             UPDATE hauling.orders SET origin_system = @origin, destination_system = @dest,
                 shop_requested = @shop, notes = @notes, total_m3 = @m3, total_estimated_isk = @isk,
-                hauling_fee = @hfee, shopper_fee = @sfee, updated_at = now()
+                total_actual_isk = @actisk, hauling_fee = @hfee, shopper_fee = @sfee, updated_at = now()
             WHERE order_id = @oid", conn, tx);
+        updateCmd.Parameters.AddWithValue("actisk", totalActualIsk.HasValue ? totalActualIsk.Value : DBNull.Value);
         updateCmd.Parameters.AddWithValue("origin", originSystem);
         updateCmd.Parameters.AddWithValue("dest", destinationSystem);
         updateCmd.Parameters.AddWithValue("shop", shopRequested);
