@@ -225,12 +225,22 @@ public sealed class OrderRepository
         await conn.OpenAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
 
+        // Snapshot existing actual prices before deleting
+        var existingPrices = new Dictionary<int, decimal>();
+        await using var snapCmd = new NpgsqlCommand(
+            "SELECT type_id, actual_price FROM hauling.order_items WHERE order_id = @oid AND actual_price IS NOT NULL", conn, tx);
+        snapCmd.Parameters.AddWithValue("oid", orderId);
+        await using var snapReader = await snapCmd.ExecuteReaderAsync(ct);
+        while (await snapReader.ReadAsync(ct))
+            existingPrices[snapReader.GetInt32(0)] = snapReader.GetDecimal(1);
+        await snapReader.CloseAsync();
+
         // Delete existing items
         await using var delCmd = new NpgsqlCommand("DELETE FROM hauling.order_items WHERE order_id = @oid", conn, tx);
         delCmd.Parameters.AddWithValue("oid", orderId);
         await delCmd.ExecuteNonQueryAsync(ct);
 
-        // Insert new items and recalculate
+        // Insert new items, carrying over actual prices for matching type_ids
         decimal totalM3 = 0;
         decimal totalEstimatedIsk = 0;
         for (var i = 0; i < items.Count; i++)
@@ -239,16 +249,18 @@ public sealed class OrderRepository
             var lineM3 = item.VolumePerUnit * item.Quantity;
             totalM3 += lineM3;
             totalEstimatedIsk += item.EstimatedPrice * item.Quantity;
+            var hasActual = existingPrices.TryGetValue(item.TypeId, out var actualPrice);
 
             await using var itemCmd = new NpgsqlCommand(@"
-                INSERT INTO hauling.order_items (order_id, type_id, quantity, volume_per_unit, line_m3, estimated_price, sort_order)
-                VALUES (@oid, @tid, @qty, @vol, @lm3, @est, @srt)", conn, tx);
+                INSERT INTO hauling.order_items (order_id, type_id, quantity, volume_per_unit, line_m3, estimated_price, actual_price, sort_order)
+                VALUES (@oid, @tid, @qty, @vol, @lm3, @est, @act, @srt)", conn, tx);
             itemCmd.Parameters.AddWithValue("oid", orderId);
             itemCmd.Parameters.AddWithValue("tid", item.TypeId);
             itemCmd.Parameters.AddWithValue("qty", item.Quantity);
             itemCmd.Parameters.AddWithValue("vol", item.VolumePerUnit);
             itemCmd.Parameters.AddWithValue("lm3", lineM3);
             itemCmd.Parameters.AddWithValue("est", item.EstimatedPrice);
+            itemCmd.Parameters.AddWithValue("act", hasActual ? actualPrice : DBNull.Value);
             itemCmd.Parameters.AddWithValue("srt", i);
             await itemCmd.ExecuteNonQueryAsync(ct);
         }
