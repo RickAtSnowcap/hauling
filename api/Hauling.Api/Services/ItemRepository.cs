@@ -15,9 +15,22 @@ public sealed class ItemRepository
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
-        await using var cmd = new NpgsqlCommand(
-            "SELECT type_id, type_name, COALESCE(packaged_volume, volume) FROM hauling.eve_types WHERE type_name ILIKE @q ORDER BY type_name LIMIT @lim", conn);
-        cmd.Parameters.AddWithValue("q", $"%{query}%");
+        // Relevance-ranked search: exact name match first, then starts-with, then real items
+        // above cosmetic SKINs (category 91), then shorter names, then alphabetical. Without this,
+        // an alphabetical + LIMIT search buries e.g. the mineral "Zydrine" beneath its 25
+        // "... Zydrine Burn SKIN" variants and it never appears in the dropdown.
+        await using var cmd = new NpgsqlCommand(@"
+            SELECT type_id, type_name, COALESCE(packaged_volume, volume)
+            FROM hauling.eve_types
+            WHERE type_name ILIKE '%' || @q || '%'
+            ORDER BY
+                (LOWER(type_name) = LOWER(@q)) DESC,               -- exact match first
+                (LOWER(type_name) LIKE (LOWER(@q) || '%')) DESC,   -- then starts-with
+                ((category_id = 91) IS TRUE) ASC,                  -- SKINs below real items
+                LENGTH(type_name) ASC,                             -- shorter names first
+                type_name ASC
+            LIMIT @lim", conn);
+        cmd.Parameters.AddWithValue("q", query);
         cmd.Parameters.AddWithValue("lim", limit);
 
         var results = new List<ItemResult>();
