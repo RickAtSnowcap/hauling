@@ -9,10 +9,20 @@ interface Props {
   onEditComplete?: () => void;
 }
 
+// AMA Hauling supported destinations by origin. Mirrors ValidateRoute in the API —
+// every trip has Z19-B8 as one endpoint.
+const DESTINATIONS_BY_ORIGIN: Record<string, { value: string; label: string }[]> = {
+  'Jita':     [{ value: 'Z19-B8',   label: 'Z19-B8 (Black Canary)' }],
+  'Odebeinn': [{ value: 'Z19-B8',   label: 'Z19-B8 (Black Canary)' }],
+  'Z19-B8':   [{ value: 'Odebeinn', label: 'Odebeinn (V-V)' },
+               { value: 'Jita',     label: 'Jita 4-4' }],
+};
+
 export default function NewOrder({ editingOrder, onEditComplete }: Props) {
   const [origin, setOrigin] = useState('Jita');
-  const [destination, setDestination] = useState('E-BYOS');
+  const [destination, setDestination] = useState('Z19-B8');
   const [shopRequested, setShopRequested] = useState(false);
+  const [expedite, setExpedite] = useState(false);
   const [items, setItems] = useState<OrderItemInput[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ItemResult[]>([]);
@@ -41,6 +51,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
       setOrigin(editingOrder.origin_system);
       setDestination(editingOrder.destination_system);
       setShopRequested(editingOrder.shop_requested);
+      setExpedite(editingOrder.expedite);
       setNotes(editingOrder.notes || '');
       setItems(editingOrder.items.map(i => ({
         type_id: i.type_id,
@@ -60,9 +71,15 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  // Fetch prices retroactively when Personal Shopper is toggled on
+  // Evola handles the highsec leg whenever Jita is an endpoint (in either direction).
+  const evolaInvolved = origin === 'Jita' || destination === 'Jita';
+  // Personal shopper only applies when buying at Jita.
+  const shopperAvailable = origin === 'Jita';
+
+  // Fetch Jita prices retroactively when route becomes Evola-routed or shopper toggles on.
+  // Path B: Evola routes always need cargo_value for the 1% collateral charge, even haul-only.
   useEffect(() => {
-    if (!shopRequested || items.length === 0) return;
+    if (!evolaInvolved || items.length === 0) return;
     const needsPrices = items.filter(i => i.estimated_price === 0 && i.type_id > 0);
     if (needsPrices.length === 0) return;
 
@@ -75,7 +92,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
       }
       setItems(updated);
     })();
-  }, [shopRequested]);
+  }, [evolaInvolved, shopRequested, items.length]);
 
   function handleSearch(q: string) {
     setSearchQuery(q);
@@ -98,7 +115,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
     }
     setShowResults(false);
     setSearchQuery('');
-    const price = shopRequested ? await getJitaPrice(item.type_id) : 0;
+    const price = evolaInvolved ? await getJitaPrice(item.type_id) : 0;
     setItems(prev => [...prev, {
       type_id: item.type_id,
       type_name: item.type_name,
@@ -174,7 +191,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
         if (existingIdx >= 0) {
           newItems[existingIdx] = { ...newItems[existingIdx], quantity: newItems[existingIdx].quantity + qty };
         } else {
-          const price = shopRequested ? await getJitaPrice(item.type_id) : 0;
+          const price = evolaInvolved ? await getJitaPrice(item.type_id) : 0;
           newItems.push({
             type_id: item.type_id,
             type_name: item.type_name,
@@ -223,12 +240,25 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
 
   const totalM3 = items.reduce((sum, i) => sum + i.volume_per_unit * i.quantity, 0);
   const totalEstIsk = items.reduce((sum, i) => sum + i.estimated_price * i.quantity, 0);
-  const ratePerM3 = origin === 'Jita' ? (config?.jita_rate_per_m3 ?? 1050) : (config?.odebeinn_rate_per_m3 ?? 650);
-  const haulingFee = totalM3 * ratePerM3;
+  // Path B hauling fee: Evola pass-through whenever Jita is an endpoint, fuel+service only otherwise
+  let haulingFee = 0;
+  if (config) {
+    if (evolaInvolved) {
+      const evolaCost = Math.max(
+        config.evola_isk_per_m3 * totalM3 + config.evola_collateral_pct * totalEstIsk,
+        config.evola_minimum
+      );
+      haulingFee = evolaCost + (config.fuel_isk_per_m3 + config.service_isk_per_m3) * totalM3;
+    } else {
+      haulingFee = (config.fuel_isk_per_m3 + config.service_isk_per_m3) * totalM3;
+    }
+  }
   const shopperFee = shopRequested && config
     ? config.shopper_fee_minimum
     : 0;
-  const grandTotal = (shopRequested ? totalEstIsk : 0) + haulingFee + shopperFee;
+  const expediteFee = expedite && config ? config.expedite_fee : 0;
+  const feesTotal = haulingFee + shopperFee + expediteFee;
+  const grandTotal = (shopRequested ? totalEstIsk : 0) + feesTotal;
   const maxM3 = config?.max_order_m3 ?? 300000;
   const overCapacity = totalM3 > maxM3;
 
@@ -238,10 +268,10 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
     setError('');
     try {
       if (isEditing && editingOrder) {
-        await updateOrderItems(editingOrder.order_id, shopRequested, items, origin, destination, notes);
+        await updateOrderItems(editingOrder.order_id, shopRequested, expedite, items, origin, destination, notes);
         onEditComplete?.();
       } else {
-        const orderId = await createOrder(shopRequested, items, origin, destination, notes);
+        const orderId = await createOrder(shopRequested, expedite, items, origin, destination, notes);
         setSuccess(orderId);
         setItems([]);
         setNotes('');
@@ -296,27 +326,51 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
       <div className="route-selection">
         <div className="route-field">
           <label>Origin:</label>
-          <select value={origin} onChange={e => { setOrigin(e.target.value); if (e.target.value !== 'Jita') setShopRequested(false); }}>
+          <select value={origin} onChange={e => {
+            const newOrigin = e.target.value;
+            const validDests = DESTINATIONS_BY_ORIGIN[newOrigin];
+            const newDest = validDests.some(d => d.value === destination) ? destination : validDests[0].value;
+            setOrigin(newOrigin);
+            setDestination(newDest);
+            if (newOrigin !== 'Jita') setShopRequested(false);
+            if (newOrigin !== 'Jita' && newDest !== 'Jita') setExpedite(false);
+          }}>
             <option value="Jita">Jita (market hub)</option>
             <option value="Odebeinn">Odebeinn (asset safety)</option>
+            <option value="Z19-B8">Z19-B8 (Black Canary)</option>
           </select>
         </div>
         <div className="route-field">
           <label>Destination:</label>
-          <select value={destination} onChange={e => setDestination(e.target.value)}>
-            <option value="E-B957">E-B957 (Builders Edge)</option>
-            <option value="E-BYOS">E-BYOS (The Forum)</option>
+          <select value={destination} onChange={e => {
+            const newDest = e.target.value;
+            setDestination(newDest);
+            // Reset expedite if neither endpoint will be Jita
+            if (origin !== 'Jita' && newDest !== 'Jita') setExpedite(false);
+          }}>
+            {DESTINATIONS_BY_ORIGIN[origin].map(d => (
+              <option key={d.value} value={d.value}>{d.label}</option>
+            ))}
           </select>
         </div>
       </div>
 
-      {origin === 'Jita' && (
+      {(shopperAvailable || evolaInvolved) && (
         <div className="order-options">
-          <label className="shop-toggle">
-            <input type="checkbox" checked={shopRequested} onChange={e => setShopRequested(e.target.checked)} />
-            <span>Personal Shopper</span>
-            <span className="shop-hint">{shopRequested ? 'Enabled: We buy items for you (per-item fee)' : 'Disabled: You provide items at origin, we haul'}</span>
-          </label>
+          {shopperAvailable && (
+            <label className="shop-toggle">
+              <input type="checkbox" checked={shopRequested} onChange={e => setShopRequested(e.target.checked)} />
+              <span>Personal Shopper</span>
+              <span className="shop-hint">{shopRequested ? 'Enabled: We buy items for you (per-item fee)' : 'Disabled: You provide items at origin, we haul'}</span>
+            </label>
+          )}
+          {evolaInvolved && (
+            <label className="shop-toggle">
+              <input type="checkbox" checked={expedite} onChange={e => setExpedite(e.target.checked)} />
+              <span>Expedite (+{config ? (config.expedite_fee / 1_000_000).toFixed(0) : '150'}M ISK)</span>
+              <span className="shop-hint">{expedite ? 'Enabled: Evola fast courier — hours instead of days' : 'Disabled: Standard Evola courier — 2 to 3 days'}</span>
+            </label>
+          )}
         </div>
       )}
 
@@ -417,9 +471,10 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
           <div className="order-totals">
             <div className={`total-row ${overCapacity ? 'over-capacity' : ''}`}><span>Total Volume:</span><span>{formatM3(totalM3)} / {formatM3(maxM3)} m³</span></div>
             {shopRequested && <div className="total-row"><span>Estimated Item Cost:</span><span>{formatIsk(totalEstIsk)} ISK</span></div>}
-            <div className="total-row"><span>Hauling Fee ({origin === 'Jita' ? config?.jita_rate_per_m3 : config?.odebeinn_rate_per_m3} ISK/m³):</span><span>{formatIsk(haulingFee)} ISK</span></div>
+            <div className="total-row"><span>Hauling Fee:</span><span>{formatIsk(haulingFee)} ISK</span></div>
             {shopRequested && <div className="total-row"><span>Shopper Fee (flat):</span><span>{formatIsk(shopperFee)} ISK</span></div>}
-            <div className="total-row grand-total"><span>{shopRequested ? 'Grand Total:' : 'Total Fee:'}</span><span>{formatIsk(shopRequested ? grandTotal : haulingFee)} ISK</span></div>
+            {expedite && <div className="total-row"><span>Expedite Fee:</span><span>{formatIsk(expediteFee)} ISK</span></div>}
+            <div className="total-row grand-total"><span>{shopRequested ? 'Grand Total:' : 'Total Fee:'}</span><span>{formatIsk(shopRequested ? grandTotal : feesTotal)} ISK</span></div>
           </div>
 
           {overCapacity && <div className="order-error">Order exceeds maximum JF cargo capacity of {formatM3(maxM3)} m³. Remove items or reduce quantities.</div>}

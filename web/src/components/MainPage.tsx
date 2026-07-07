@@ -27,6 +27,7 @@ export default function MainPage({ user, onLogout }: Props) {
           <h1>Angry Hauling</h1>
         </div>
         <div className="top-right">
+          {user.role === 'admin' && <a className="archived-link" href="/archived">Archived Orders</a>}
           <span className="char-name">{user.character_name}</span>
           <span className={`role-badge role-${user.role}`}>{user.role}</span>
           <button className="logout-btn" onClick={onLogout}>Logout</button>

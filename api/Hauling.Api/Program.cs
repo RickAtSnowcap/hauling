@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Hauling.Api.Services;
+using Microsoft.Extensions.Logging;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
@@ -21,14 +22,14 @@ var ssoService = new EveSsoService(clientId, clientSecret, callbackUrl);
 var authService = new AuthService(jwtKey);
 var itemRepo = new ItemRepository(connStr);
 var orderRepo = new OrderRepository(connStr);
-var esiMarket = new EsiMarketService();
 
 builder.Services.AddSingleton(userRepo);
 builder.Services.AddSingleton(ssoService);
 builder.Services.AddSingleton(authService);
 builder.Services.AddSingleton(itemRepo);
 builder.Services.AddSingleton(orderRepo);
-builder.Services.AddSingleton(esiMarket);
+// EsiMarketService needs an ILogger, so let DI build it (via a factory to stay AOT-friendly).
+builder.Services.AddSingleton(sp => new EsiMarketService(sp.GetRequiredService<ILogger<EsiMarketService>>()));
 var esiResolver = new EsiItemResolver();
 builder.Services.AddSingleton(esiResolver);
 var discordWebhook = Environment.GetEnvironmentVariable("DISCORD_WEBHOOK_HAULING") ?? "";
@@ -147,8 +148,10 @@ app.MapPost("/api/items/match", async (List<string> names, ItemRepository items,
 // GET /api/items/{typeId}/price — get Jita lowest sell price
 app.MapGet("/api/items/{typeId:int}/price", async (int typeId, EsiMarketService esi, CancellationToken ct) =>
 {
-    var price = await esi.GetJitaSellPriceAsync(typeId, ct);
-    return Results.Ok(new PriceResponse { TypeId = typeId, JitaSellPrice = price });
+    // A failed lookup returns null; report 0 to the client (unchanged contract) but it's now
+    // logged and retried server-side, and order creation backfills any 0 authoritatively.
+    var price = await esi.TryGetJitaSellPriceAsync(typeId, ct);
+    return Results.Ok(new PriceResponse { TypeId = typeId, JitaSellPrice = price ?? 0m });
 });
 
 // --- Orders (all require auth) ---
@@ -160,26 +163,42 @@ TokenClaims? GetClaims(HttpRequest request, AuthService auth)
     return string.IsNullOrEmpty(token) ? null : auth.ValidateToken(token);
 }
 
+// AMA Hauling supported routes: every trip has Z19-B8 as one endpoint, the other is Jita or Odebeinn.
+// Returns null if valid, an error string otherwise.
+static string? ValidateRoute(string origin, string destination)
+{
+    var inbound = (origin == "Jita" || origin == "Odebeinn") && destination == "Z19-B8";
+    var outbound = origin == "Z19-B8" && (destination == "Jita" || destination == "Odebeinn");
+    if (inbound || outbound) return null;
+    return $"Unsupported route {origin} → {destination}. Valid routes: Jita↔Z19-B8, Odebeinn↔Z19-B8.";
+}
+
 // POST /api/orders — create a new order
 app.MapPost("/api/orders", async (HttpRequest request, CreateOrderRequest body, AuthService auth,
-    OrderRepository orders, UserRepository users, CancellationToken ct) =>
+    OrderRepository orders, UserRepository users, EsiMarketService esi, CancellationToken ct) =>
 {
     var claims = GetClaims(request, auth);
     if (claims == null) return Results.Unauthorized();
 
-    // Validate origin/destination
-    var validOrigins = new[] { "Jita", "Odebeinn" };
-    var validDestinations = new[] { "E-B957", "E-BYOS" };
-    if (!validOrigins.Contains(body.OriginSystem))
-        return Results.BadRequest(new ErrorResponse { Error = $"Invalid origin system. Must be one of: {string.Join(", ", validOrigins)}" });
-    if (!validDestinations.Contains(body.DestinationSystem))
-        return Results.BadRequest(new ErrorResponse { Error = $"Invalid destination system. Must be one of: {string.Join(", ", validDestinations)}" });
+    // Validate the route pair — every trip must have Z19-B8 as one endpoint
+    var routeError = ValidateRoute(body.OriginSystem, body.DestinationSystem);
+    if (routeError != null) return Results.BadRequest(new ErrorResponse { Error = routeError });
 
-    // Get rate based on origin
-    var rateKey = body.OriginSystem == "Jita" ? "jita_rate_per_m3" : "odebeinn_rate_per_m3";
-    var haulingRate = decimal.Parse(await users.GetConfigAsync(rateKey, ct));
+    // Evola handles the highsec leg whenever Jita is an endpoint (in either direction)
+    var evolaRoute = body.OriginSystem == "Jita" || body.DestinationSystem == "Jita";
+    var expedite = body.Expedite && evolaRoute;
+    // Shopper only makes sense when buying at Jita — origin must be Jita
+    var shopRequested = body.ShopRequested && body.OriginSystem == "Jita";
+
+    // Read pricing components (Path B — Evola pass-through model)
+    var evolaIsk = decimal.Parse(await users.GetConfigAsync("evola_isk_per_m3", ct));
+    var evolaPct = decimal.Parse(await users.GetConfigAsync("evola_collateral_pct", ct));
+    var evolaMin = decimal.Parse(await users.GetConfigAsync("evola_minimum", ct));
+    var fuelIsk = decimal.Parse(await users.GetConfigAsync("fuel_isk_per_m3", ct));
+    var serviceIsk = decimal.Parse(await users.GetConfigAsync("service_isk_per_m3", ct));
     var shopperFeePerItem = decimal.Parse(await users.GetConfigAsync("shopper_fee_per_item", ct));
     var shopperFeeMinimum = decimal.Parse(await users.GetConfigAsync("shopper_fee_minimum", ct));
+    var expediteFee = expedite ? decimal.Parse(await users.GetConfigAsync("expedite_fee", ct)) : 0;
     var maxM3 = decimal.Parse(await users.GetConfigAsync("max_order_m3", ct));
 
     var items = body.Items.Select(i => new OrderItemInput
@@ -190,20 +209,37 @@ app.MapPost("/api/orders", async (HttpRequest request, CreateOrderRequest body, 
         EstimatedPrice = i.EstimatedPrice
     }).ToList();
 
+    // Server-side price backfill. The client fetches Jita prices opportunistically and can
+    // silently leave a line at 0 (e.g. ESI throttled the last item of a large order). On an
+    // Evola route the estimate feeds the 1% collateral charge, so a stray 0 undercharges the
+    // haul — fill any zero-priced line here authoritatively before the math and the save.
+    if (evolaRoute)
+    {
+        foreach (var item in items.Where(i => i.EstimatedPrice == 0 && i.TypeId > 0))
+        {
+            var price = await esi.TryGetJitaSellPriceAsync(item.TypeId, ct);
+            if (price is > 0) item.EstimatedPrice = price.Value;
+        }
+    }
+
     // Check total m3 against max
     var totalM3 = items.Sum(i => i.VolumePerUnit * i.Quantity);
     if (totalM3 > maxM3)
         return Results.BadRequest(new ErrorResponse { Error = $"Order exceeds maximum capacity of {maxM3:N0} m³ ({totalM3:N2} m³ requested)" });
 
+    // Path B hauling fee: Evola pass-through whenever Jita is an endpoint, fuel+service only otherwise
+    var cargoValue = items.Sum(i => i.EstimatedPrice * i.Quantity);
+    var haulingFee = evolaRoute
+        ? Math.Max(evolaIsk * totalM3 + evolaPct * cargoValue, evolaMin) + (fuelIsk + serviceIsk) * totalM3
+        : (fuelIsk + serviceIsk) * totalM3;
+
     var orderId = await orders.CreateOrderAsync(claims.CharacterId, body.OriginSystem, body.DestinationSystem,
-        body.ShopRequested, body.Notes, items, haulingRate, shopperFeePerItem, shopperFeeMinimum, ct);
+        shopRequested, expedite, expediteFee, body.Notes, items, haulingFee, shopperFeePerItem, shopperFeeMinimum, ct);
 
     // Notify Discord
-    var orderM3 = items.Sum(i => i.VolumePerUnit * i.Quantity);
-    var hFee = orderM3 * haulingRate;
-    var sFee = body.ShopRequested ? Math.Max(items.Count * shopperFeePerItem, shopperFeeMinimum) : 0;
+    var sFee = shopRequested ? Math.Max(items.Count * shopperFeePerItem, shopperFeeMinimum) : 0;
     _ = discord.NotifyNewOrderAsync(orderId, claims.CharacterName, body.OriginSystem, body.DestinationSystem,
-        body.ShopRequested, orderM3, hFee, sFee, items.Count);
+        shopRequested, totalM3, haulingFee, sFee, items.Count);
 
     return Results.Created($"/api/orders/{orderId}", new OrderCreatedResponse { OrderId = orderId });
 });
@@ -215,7 +251,20 @@ app.MapGet("/api/orders", async (HttpRequest request, AuthService auth, OrderRep
     if (claims == null) return Results.Unauthorized();
 
     long? filterCharId = claims.Role == "member" ? claims.CharacterId : null;
-    var result = await orders.ListOrdersAsync(filterCharId, limit ?? 20, offset ?? 0, ct);
+    var result = await orders.ListOrdersAsync(filterCharId, limit ?? 20, offset ?? 0, archivedOnly: false, ct);
+    return Results.Ok(result);
+});
+
+// GET /api/orders/archived — list archived orders (admin only)
+app.MapGet("/api/orders/archived", async (HttpRequest request, AuthService auth,
+    OrderRepository orders, int? limit, int? offset, CancellationToken ct) =>
+{
+    var claims = GetClaims(request, auth);
+    if (claims == null) return Results.Unauthorized();
+    if (claims.Role != "admin")
+        return Results.Json(new ErrorResponse { Error = "Admin only" }, HaulingJsonContext.Default.ErrorResponse, statusCode: 403);
+
+    var result = await orders.ListOrdersAsync(null, limit ?? 50, offset ?? 0, archivedOnly: true, ct);
     return Results.Ok(result);
 });
 
@@ -260,13 +309,15 @@ app.MapPut("/api/orders/{id:long}/status", async (long id, HttpRequest request, 
 
 // PUT /api/orders/{id}/items — edit order line items (member own order while pending/accepted, or admin)
 app.MapPut("/api/orders/{id:long}/items", async (long id, HttpRequest request, CreateOrderRequest body,
-    AuthService auth, OrderRepository orders, UserRepository users, CancellationToken ct) =>
+    AuthService auth, OrderRepository orders, UserRepository users, EsiMarketService esi, CancellationToken ct) =>
 {
     var claims = GetClaims(request, auth);
     if (claims == null) return Results.Unauthorized();
 
     var order = await orders.GetOrderAsync(id, ct);
     if (order == null) return Results.NotFound();
+    if (order.Archived)
+        return Results.Json(new ErrorResponse { Error = "Cannot modify archived order" }, HaulingJsonContext.Default.ErrorResponse, statusCode: 400);
 
     // Members can edit their own orders while pending/accepted
     // Admins can edit any order that's not delivered
@@ -287,11 +338,22 @@ app.MapPut("/api/orders/{id:long}/items", async (long id, HttpRequest request, C
     var originSystem = !string.IsNullOrEmpty(body.OriginSystem) ? body.OriginSystem : order.OriginSystem;
     var destinationSystem = !string.IsNullOrEmpty(body.DestinationSystem) ? body.DestinationSystem : order.DestinationSystem;
 
-    // Get rate based on origin system
-    var rateKey = originSystem == "Jita" ? "jita_rate_per_m3" : "odebeinn_rate_per_m3";
-    var haulingRate = decimal.Parse(await users.GetConfigAsync(rateKey, ct));
+    var routeError = ValidateRoute(originSystem, destinationSystem);
+    if (routeError != null) return Results.BadRequest(new ErrorResponse { Error = routeError });
+
+    var evolaRoute = originSystem == "Jita" || destinationSystem == "Jita";
+    var expedite = body.Expedite && evolaRoute;
+    var shopRequested = body.ShopRequested && originSystem == "Jita";
+
+    // Read pricing components (Path B — Evola pass-through model)
+    var evolaIsk = decimal.Parse(await users.GetConfigAsync("evola_isk_per_m3", ct));
+    var evolaPct = decimal.Parse(await users.GetConfigAsync("evola_collateral_pct", ct));
+    var evolaMin = decimal.Parse(await users.GetConfigAsync("evola_minimum", ct));
+    var fuelIsk = decimal.Parse(await users.GetConfigAsync("fuel_isk_per_m3", ct));
+    var serviceIsk = decimal.Parse(await users.GetConfigAsync("service_isk_per_m3", ct));
     var shopperFeePerItem = decimal.Parse(await users.GetConfigAsync("shopper_fee_per_item", ct));
     var shopperFeeMinimum = decimal.Parse(await users.GetConfigAsync("shopper_fee_minimum", ct));
+    var expediteFee = expedite ? decimal.Parse(await users.GetConfigAsync("expedite_fee", ct)) : 0;
 
     var itemInputs = body.Items.Select(i => new OrderItemInput
     {
@@ -301,7 +363,25 @@ app.MapPut("/api/orders/{id:long}/items", async (long id, HttpRequest request, C
         EstimatedPrice = i.EstimatedPrice
     }).ToList();
 
-    await orders.ReplaceOrderItemsAsync(id, originSystem, destinationSystem, body.ShopRequested, body.Notes, itemInputs, haulingRate, shopperFeePerItem, shopperFeeMinimum, ct);
+    // Backfill any zero-priced line server-side (see POST /api/orders) so an edit can't
+    // reintroduce a stray 0 into the collateral math.
+    if (evolaRoute)
+    {
+        foreach (var item in itemInputs.Where(i => i.EstimatedPrice == 0 && i.TypeId > 0))
+        {
+            var price = await esi.TryGetJitaSellPriceAsync(item.TypeId, ct);
+            if (price is > 0) item.EstimatedPrice = price.Value;
+        }
+    }
+
+    // Path B hauling fee: Evola pass-through whenever Jita is an endpoint, fuel+service only otherwise
+    var editTotalM3 = itemInputs.Sum(i => i.VolumePerUnit * i.Quantity);
+    var editCargoValue = itemInputs.Sum(i => i.EstimatedPrice * i.Quantity);
+    var editHaulingFee = evolaRoute
+        ? Math.Max(evolaIsk * editTotalM3 + evolaPct * editCargoValue, evolaMin) + (fuelIsk + serviceIsk) * editTotalM3
+        : (fuelIsk + serviceIsk) * editTotalM3;
+
+    await orders.ReplaceOrderItemsAsync(id, originSystem, destinationSystem, shopRequested, expedite, expediteFee, body.Notes, itemInputs, editHaulingFee, shopperFeePerItem, shopperFeeMinimum, ct);
     return Results.Ok(new HealthResponse { Status = "updated" });
 });
 
@@ -316,6 +396,26 @@ app.MapPut("/api/orders/{id:long}/assign", async (long id, HttpRequest request, 
 
     var updated = await orders.AssignHaulerAsync(id, body.CharacterId, ct);
     return updated ? Results.Ok(new HealthResponse { Status = "assigned" }) : Results.NotFound();
+});
+
+// PUT /api/orders/{id}/archive — archive a delivered/cancelled order (admin only, no unarchive)
+app.MapPut("/api/orders/{id:long}/archive", async (long id, HttpRequest request,
+    AuthService auth, OrderRepository orders, CancellationToken ct) =>
+{
+    var claims = GetClaims(request, auth);
+    if (claims == null) return Results.Unauthorized();
+    if (claims.Role != "admin")
+        return Results.Json(new ErrorResponse { Error = "Admin only" }, HaulingJsonContext.Default.ErrorResponse, statusCode: 403);
+
+    var order = await orders.GetOrderAsync(id, ct);
+    if (order == null) return Results.NotFound();
+    if (order.Archived)
+        return Results.Json(new ErrorResponse { Error = "Order is already archived" }, HaulingJsonContext.Default.ErrorResponse, statusCode: 400);
+    if (order.Status != "delivered" && order.Status != "cancelled")
+        return Results.Json(new ErrorResponse { Error = "Only delivered or cancelled orders can be archived" }, HaulingJsonContext.Default.ErrorResponse, statusCode: 400);
+
+    var ok = await orders.ArchiveOrderAsync(id, ct);
+    return ok ? Results.Ok(new HealthResponse { Status = "archived" }) : Results.NotFound();
 });
 
 // DELETE /api/orders/{id} — delete order (admin only)
@@ -347,20 +447,28 @@ app.MapPut("/api/orders/items/{itemId:long}/actual-price", async (long itemId, H
     return Results.Ok(new HealthResponse { Status = "updated" });
 });
 
-// GET /api/config — get fee rates (public for display)
+// GET /api/config — get fee components (public for display)
 app.MapGet("/api/config", async (UserRepository users, CancellationToken ct) =>
 {
-    var jitaRate = await users.GetConfigAsync("jita_rate_per_m3", ct);
-    var odebeinnRate = await users.GetConfigAsync("odebeinn_rate_per_m3", ct);
+    var evolaIsk = await users.GetConfigAsync("evola_isk_per_m3", ct);
+    var evolaPct = await users.GetConfigAsync("evola_collateral_pct", ct);
+    var evolaMin = await users.GetConfigAsync("evola_minimum", ct);
+    var fuelIsk = await users.GetConfigAsync("fuel_isk_per_m3", ct);
+    var serviceIsk = await users.GetConfigAsync("service_isk_per_m3", ct);
     var shopperFeePerItem = await users.GetConfigAsync("shopper_fee_per_item", ct);
     var shopperFeeMinimum = await users.GetConfigAsync("shopper_fee_minimum", ct);
+    var expediteFee = await users.GetConfigAsync("expedite_fee", ct);
     var maxM3 = await users.GetConfigAsync("max_order_m3", ct);
     return Results.Ok(new ConfigResponse
     {
-        JitaRatePerM3 = decimal.Parse(jitaRate),
-        OdebeinnRatePerM3 = decimal.Parse(odebeinnRate),
+        EvolaIskPerM3 = decimal.Parse(evolaIsk),
+        EvolaCollateralPct = decimal.Parse(evolaPct),
+        EvolaMinimum = decimal.Parse(evolaMin),
+        FuelIskPerM3 = decimal.Parse(fuelIsk),
+        ServiceIskPerM3 = decimal.Parse(serviceIsk),
         ShopperFeePerItem = decimal.Parse(shopperFeePerItem),
         ShopperFeeMinimum = decimal.Parse(shopperFeeMinimum),
+        ExpediteFee = decimal.Parse(expediteFee),
         MaxOrderM3 = decimal.Parse(maxM3)
     });
 });
@@ -379,6 +487,7 @@ public sealed class CreateOrderRequest
     public string OriginSystem { get; set; } = "";
     public string DestinationSystem { get; set; } = "";
     public bool ShopRequested { get; set; }
+    public bool Expedite { get; set; }
     public string Notes { get; set; } = "";
     public List<CreateOrderItemRequest> Items { get; set; } = new();
 }
@@ -399,10 +508,14 @@ public sealed class OrderCreatedResponse { public long OrderId { get; set; } }
 public sealed class StatusResponse { public long OrderId { get; set; } public string Status { get; set; } = ""; }
 public sealed class ConfigResponse
 {
-    public decimal JitaRatePerM3 { get; set; }
-    public decimal OdebeinnRatePerM3 { get; set; }
+    public decimal EvolaIskPerM3 { get; set; }
+    public decimal EvolaCollateralPct { get; set; }
+    public decimal EvolaMinimum { get; set; }
+    public decimal FuelIskPerM3 { get; set; }
+    public decimal ServiceIskPerM3 { get; set; }
     public decimal ShopperFeePerItem { get; set; }
     public decimal ShopperFeeMinimum { get; set; }
+    public decimal ExpediteFee { get; set; }
     public decimal MaxOrderM3 { get; set; }
 }
 

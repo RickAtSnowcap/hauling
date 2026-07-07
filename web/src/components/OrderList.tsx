@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { copyText } from '../copyText';
 import { parseTransactionLog } from '../parsers';
 import type { UserInfo, OrderSummary, OrderDetail } from '../types';
-import { listOrders, getOrder, updateOrderStatus, updateActualPrice, deleteOrder, assignHauler, listHaulers } from '../api';
+import { listOrders, getOrder, updateOrderStatus, updateActualPrice, deleteOrder, assignHauler, listHaulers, archiveOrder } from '../api';
 import type { HaulerInfo } from '../api';
 import './OrderList.css';
 
@@ -85,6 +85,17 @@ export default function OrderList({ user, onEditOrder }: Props) {
     } catch { /* ignore */ }
   }
 
+  async function handleArchive(orderId: number) {
+    if (!confirm(`Archive order #${orderId}? Archived orders are removed from the main list and become view-only. This cannot be undone.`)) return;
+    try {
+      await archiveOrder(orderId);
+      if (selectedOrder?.order_id === orderId) setSelectedOrder(null);
+      await loadOrders();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to archive order');
+    }
+  }
+
   async function handleAssignHauler(orderId: number) {
     const charId = parseInt(assignCharId);
     if (isNaN(charId)) return;
@@ -92,7 +103,7 @@ export default function OrderList({ user, onEditOrder }: Props) {
       await assignHauler(orderId, charId);
       await loadOrders();
       setSelectedOrder(await getOrder(orderId));
-      setAssignCharId('');
+      setAssignCharId(String(charId));
     } catch { /* ignore */ }
   }
 
@@ -150,12 +161,21 @@ export default function OrderList({ user, onEditOrder }: Props) {
             <div className="order-card-top">
               <span className="order-id">#{order.order_id}</span>
               <span className={`status-badge ${statusClass(order.status)}`}>{order.status.replace('_', ' ')}</span>
+              {isAdmin && (order.status === 'delivered' || order.status === 'cancelled') && (
+                <button
+                  className="archive-btn-icon"
+                  title="Archive order"
+                  aria-label={`Archive order ${order.order_id}`}
+                  onClick={e => { e.stopPropagation(); handleArchive(order.order_id); }}
+                >📦</button>
+              )}
             </div>
             <div className="order-card-meta">
               {isPrivileged && <span>{order.character_name}</span>}
               <span>{order.total_m3.toFixed(0)} m3</span>
               <span>{order.origin_system} → {order.destination_system}</span>
               <span>{order.shop_requested ? 'Shop+Haul' : 'Haul Only'}</span>
+              {order.expedite && <span>Expedite</span>}
               {order.assigned_to_name && <span>Hauler: {order.assigned_to_name}</span>}
             </div>
             <div className="order-card-date">{formatDate(order.created_at)}</div>
@@ -173,6 +193,7 @@ export default function OrderList({ user, onEditOrder }: Props) {
             <span>By: {selectedOrder.character_name}</span>
             <span>Route: {selectedOrder.origin_system} → {selectedOrder.destination_system}</span>
             <span>Type: {selectedOrder.shop_requested ? 'Shop + Haul' : 'Haul Only'}</span>
+            {selectedOrder.expedite && <span>Expedite: Yes</span>}
             {selectedOrder.assigned_to_name && <span>Hauler: {selectedOrder.assigned_to_name}</span>}
             <span>Created: {formatDate(selectedOrder.created_at)}</span>
           </div>
@@ -296,11 +317,13 @@ export default function OrderList({ user, onEditOrder }: Props) {
             {selectedOrder.shop_requested && selectedOrder.total_actual_isk !== null && <div><span>Actual Cost:</span><span>{formatIsk(selectedOrder.total_actual_isk)} ISK</span></div>}
             <div><span>Hauling Fee:</span><span>{formatIsk(selectedOrder.hauling_fee)} ISK</span></div>
             {selectedOrder.shop_requested && selectedOrder.shopper_fee > 0 && <div><span>Shopper Fee (flat):</span><span>{formatIsk(selectedOrder.shopper_fee)} ISK</span></div>}
+            {selectedOrder.expedite && selectedOrder.expedite_fee > 0 && <div><span>Expedite Fee:</span><span>{formatIsk(selectedOrder.expedite_fee)} ISK</span></div>}
             {['picking_up', 'in_transit', 'delivered'].includes(selectedOrder.status) && (
               <div className="total-row grand-total"><span>Delivery Contract Amount:</span><span>{formatIsk(
-                selectedOrder.shop_requested
+                (selectedOrder.shop_requested
                   ? (selectedOrder.total_actual_isk ?? selectedOrder.total_estimated_isk) + selectedOrder.hauling_fee + selectedOrder.shopper_fee
-                  : selectedOrder.hauling_fee
+                  : selectedOrder.hauling_fee)
+                + selectedOrder.expedite_fee
               )} ISK</span></div>
             )}
           </div>
@@ -334,6 +357,9 @@ export default function OrderList({ user, onEditOrder }: Props) {
                 </div>
                 {canEditOrder(selectedOrder) && (
                   <button className="edit-btn" onClick={() => onEditOrder(selectedOrder)}>Edit Order</button>
+                )}
+                {(selectedOrder.status === 'delivered' || selectedOrder.status === 'cancelled') && (
+                  <button className="archive-btn" onClick={() => handleArchive(selectedOrder.order_id)}>📦 Archive Order</button>
                 )}
                 <button className="delete-btn" onClick={() => handleDelete(selectedOrder.order_id)}>Delete Order</button>
               </div>

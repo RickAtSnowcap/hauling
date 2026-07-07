@@ -4,6 +4,7 @@ import { getMe } from './api';
 import LoginPage from './components/LoginPage';
 import MainPage from './components/MainPage';
 import PricingPage from './components/PricingPage';
+import ArchivedOrdersPage from './components/ArchivedOrdersPage';
 import './App.css';
 
 function App() {
@@ -12,6 +13,7 @@ function App() {
   const [denied, setDenied] = useState('');
 
   const isPricing = /\/pricing\/?$/.test(window.location.pathname);
+  const isArchived = /\/archived\/?$/.test(window.location.pathname);
   if (isPricing) return <><PricingPage /><Footer /></>;
 
   useEffect(() => {
@@ -45,6 +47,10 @@ function App() {
   if (loading) return <><div className="loading">Loading...</div><Footer /></>;
   if (denied) return <><DeniedPage characterName={denied} onBack={() => setDenied('')} /><Footer /></>;
   if (!user) return <><LoginPage /><Footer /></>;
+  if (isArchived) {
+    if (user.role !== 'admin') { window.location.href = '/'; return null; }
+    return <><ArchivedOrdersPage user={user} onLogout={handleLogout} /><Footer /></>;
+  }
   return <><MainPage user={user} onLogout={handleLogout} /><Footer /></>;
 }
 

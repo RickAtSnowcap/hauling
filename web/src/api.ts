@@ -56,12 +56,13 @@ export async function getConfig(): Promise<ConfigResponse> {
   return resp.json();
 }
 
-export async function createOrder(shopRequested: boolean, items: OrderItemInput[], originSystem: string, destinationSystem: string, notes: string): Promise<number> {
+export async function createOrder(shopRequested: boolean, expedite: boolean, items: OrderItemInput[], originSystem: string, destinationSystem: string, notes: string): Promise<number> {
   const resp = await authFetch(`${BASE}/api/orders`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({
       shop_requested: shopRequested,
+      expedite,
       origin_system: originSystem,
       destination_system: destinationSystem,
       notes,
@@ -132,12 +133,30 @@ export async function deleteOrder(orderId: number): Promise<void> {
   if (!resp.ok) throw new Error('Failed to delete order');
 }
 
-export async function updateOrderItems(orderId: number, shopRequested: boolean, items: OrderItemInput[], originSystem: string, destinationSystem: string, notes: string): Promise<void> {
+export async function archiveOrder(orderId: number): Promise<void> {
+  const resp = await authFetch(`${BASE}/api/orders/${orderId}/archive`, {
+    method: 'PUT',
+    headers: authHeaders()
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: 'Failed to archive order' }));
+    throw new Error(err.error || 'Failed to archive order');
+  }
+}
+
+export async function listArchivedOrders(limit = 50, offset = 0): Promise<OrderSummary[]> {
+  const resp = await authFetch(`${BASE}/api/orders/archived?limit=${limit}&offset=${offset}`, { headers: authHeaders() });
+  if (!resp.ok) throw new Error('Failed to load archived orders');
+  return resp.json();
+}
+
+export async function updateOrderItems(orderId: number, shopRequested: boolean, expedite: boolean, items: OrderItemInput[], originSystem: string, destinationSystem: string, notes: string): Promise<void> {
   const resp = await authFetch(`${BASE}/api/orders/${orderId}/items`, {
     method: 'PUT',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({
       shop_requested: shopRequested,
+      expedite,
       origin_system: originSystem,
       destination_system: destinationSystem,
       notes,

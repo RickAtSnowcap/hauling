@@ -10,10 +10,14 @@ export interface PriceResponse {
 }
 
 export interface ConfigResponse {
-  jita_rate_per_m3: number;
-  odebeinn_rate_per_m3: number;
+  evola_isk_per_m3: number;
+  evola_collateral_pct: number;
+  evola_minimum: number;
+  fuel_isk_per_m3: number;
+  service_isk_per_m3: number;
   shopper_fee_per_item: number;
   shopper_fee_minimum: number;
+  expedite_fee: number;
   max_order_m3: number;
 }
 
@@ -31,6 +35,8 @@ export interface OrderSummary {
   character_name: string;
   status: string;
   shop_requested: boolean;
+  expedite: boolean;
+  expedite_fee: number;
   total_m3: number;
   total_estimated_isk: number;
   total_actual_isk: number | null;
@@ -43,6 +49,8 @@ export interface OrderSummary {
   assigned_to: number | null;
   assigned_to_name: string | null;
   notes: string;
+  archived: boolean;
+  archived_at: string | null;
 }
 
 export interface OrderItemDetail {

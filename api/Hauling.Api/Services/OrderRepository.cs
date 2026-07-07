@@ -12,8 +12,8 @@ public sealed class OrderRepository
     }
 
     public async Task<long> CreateOrderAsync(long characterId, string originSystem, string destinationSystem,
-        bool shopRequested, string notes, List<OrderItemInput> items,
-        decimal haulingRate, decimal shopperFeePerItem, decimal shopperFeeMinimum, CancellationToken ct)
+        bool shopRequested, bool expedite, decimal expediteFee, string notes, List<OrderItemInput> items,
+        decimal haulingFee, decimal shopperFeePerItem, decimal shopperFeeMinimum, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -27,17 +27,18 @@ public sealed class OrderRepository
             totalEstimatedIsk += item.EstimatedPrice * item.Quantity;
         }
 
-        var haulingFee = totalM3 * haulingRate;
         var shopperFee = shopRequested ? Math.Max(items.Count * shopperFeePerItem, shopperFeeMinimum) : 0;
 
         await using var orderCmd = new NpgsqlCommand(@"
-            INSERT INTO hauling.orders (character_id, origin_system, destination_system, shop_requested, notes, total_m3, total_estimated_isk, hauling_fee, shopper_fee)
-            VALUES (@cid, @origin, @dest, @shop, @notes, @m3, @isk, @hfee, @sfee)
+            INSERT INTO hauling.orders (character_id, origin_system, destination_system, shop_requested, expedite, expedite_fee, notes, total_m3, total_estimated_isk, hauling_fee, shopper_fee)
+            VALUES (@cid, @origin, @dest, @shop, @expedite, @efee, @notes, @m3, @isk, @hfee, @sfee)
             RETURNING order_id", conn, tx);
         orderCmd.Parameters.AddWithValue("cid", characterId);
         orderCmd.Parameters.AddWithValue("origin", originSystem);
         orderCmd.Parameters.AddWithValue("dest", destinationSystem);
         orderCmd.Parameters.AddWithValue("shop", shopRequested);
+        orderCmd.Parameters.AddWithValue("expedite", expedite);
+        orderCmd.Parameters.AddWithValue("efee", expediteFee);
         orderCmd.Parameters.AddWithValue("notes", notes);
         orderCmd.Parameters.AddWithValue("m3", totalM3);
         orderCmd.Parameters.AddWithValue("isk", totalEstimatedIsk);
@@ -65,7 +66,7 @@ public sealed class OrderRepository
         return orderId;
     }
 
-    public async Task<List<OrderSummary>> ListOrdersAsync(long? characterId, int limit, int offset, CancellationToken ct)
+    public async Task<List<OrderSummary>> ListOrdersAsync(long? characterId, int limit, int offset, bool archivedOnly, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -73,14 +74,17 @@ public sealed class OrderRepository
         var sql = @"SELECT o.order_id, o.character_id, u.character_name, o.status, o.shop_requested,
                            o.total_m3, o.total_estimated_isk, o.total_actual_isk, o.hauling_fee, o.shopper_fee,
                            o.created_at, o.updated_at, o.assigned_to, h.character_name,
-                           o.origin_system, o.destination_system, o.notes
+                           o.origin_system, o.destination_system, o.notes,
+                           o.expedite, o.expedite_fee, o.archived, o.archived_at
                     FROM hauling.orders o
                     JOIN hauling.users u ON o.character_id = u.character_id
-                    LEFT JOIN hauling.users h ON o.assigned_to = h.character_id";
-        if (characterId.HasValue) sql += " WHERE o.character_id = @cid";
+                    LEFT JOIN hauling.users h ON o.assigned_to = h.character_id
+                    WHERE o.archived = @arch";
+        if (characterId.HasValue) sql += " AND o.character_id = @cid";
         sql += " ORDER BY o.created_at DESC LIMIT @lim OFFSET @off";
 
         await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("arch", archivedOnly);
         if (characterId.HasValue) cmd.Parameters.AddWithValue("cid", characterId.Value);
         cmd.Parameters.AddWithValue("lim", limit);
         cmd.Parameters.AddWithValue("off", offset);
@@ -107,7 +111,11 @@ public sealed class OrderRepository
                 AssignedToName = reader.IsDBNull(13) ? null : reader.GetString(13),
                 OriginSystem = reader.GetString(14),
                 DestinationSystem = reader.GetString(15),
-                Notes = reader.GetString(16)
+                Notes = reader.GetString(16),
+                Expedite = reader.GetBoolean(17),
+                ExpediteFee = reader.GetDecimal(18),
+                Archived = reader.GetBoolean(19),
+                ArchivedAt = reader.IsDBNull(20) ? null : reader.GetDateTime(20)
             });
         }
         return results;
@@ -122,7 +130,8 @@ public sealed class OrderRepository
             SELECT o.order_id, o.character_id, u.character_name, o.status, o.shop_requested,
                    o.total_m3, o.total_estimated_isk, o.total_actual_isk, o.hauling_fee, o.shopper_fee,
                    o.assigned_to, o.created_at, o.updated_at, h.character_name,
-                   o.origin_system, o.destination_system, o.notes
+                   o.origin_system, o.destination_system, o.notes,
+                   o.expedite, o.expedite_fee, o.archived, o.archived_at
             FROM hauling.orders o
             JOIN hauling.users u ON o.character_id = u.character_id
             LEFT JOIN hauling.users h ON o.assigned_to = h.character_id
@@ -149,7 +158,11 @@ public sealed class OrderRepository
             AssignedToName = orderReader.IsDBNull(13) ? null : orderReader.GetString(13),
             OriginSystem = orderReader.GetString(14),
             DestinationSystem = orderReader.GetString(15),
-            Notes = orderReader.GetString(16)
+            Notes = orderReader.GetString(16),
+            Expedite = orderReader.GetBoolean(17),
+            ExpediteFee = orderReader.GetDecimal(18),
+            Archived = orderReader.GetBoolean(19),
+            ArchivedAt = orderReader.IsDBNull(20) ? null : orderReader.GetDateTime(20)
         };
         await orderReader.CloseAsync();
 
@@ -199,7 +212,7 @@ public sealed class OrderRepository
         await conn.OpenAsync(ct);
         await using var cmd = new NpgsqlCommand(@"
             UPDATE hauling.orders SET status = @st, updated_at = now()
-            WHERE order_id = @oid", conn);
+            WHERE order_id = @oid AND archived = false", conn);
         cmd.Parameters.AddWithValue("st", status);
         cmd.Parameters.AddWithValue("oid", orderId);
         return await cmd.ExecuteNonQueryAsync(ct) > 0;
@@ -209,8 +222,13 @@ public sealed class OrderRepository
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
-        await using var cmd = new NpgsqlCommand(
-            "UPDATE hauling.order_items SET actual_price = @price WHERE item_id = @id RETURNING order_id", conn);
+        // Refuse on archived parent order (defense-in-depth; UI hides controls on archived view)
+        await using var cmd = new NpgsqlCommand(@"
+            UPDATE hauling.order_items oi
+            SET actual_price = @price
+            FROM hauling.orders o
+            WHERE oi.item_id = @id AND oi.order_id = o.order_id AND o.archived = false
+            RETURNING oi.order_id", conn);
         cmd.Parameters.AddWithValue("price", actualPrice);
         cmd.Parameters.AddWithValue("id", itemId);
         var result = await cmd.ExecuteScalarAsync(ct);
@@ -218,8 +236,8 @@ public sealed class OrderRepository
     }
 
     public async Task ReplaceOrderItemsAsync(long orderId, string originSystem, string destinationSystem,
-        bool shopRequested, string notes, List<OrderItemInput> items,
-        decimal haulingRate, decimal shopperFeePerItem, decimal shopperFeeMinimum, CancellationToken ct)
+        bool shopRequested, bool expedite, decimal expediteFee, string notes, List<OrderItemInput> items,
+        decimal haulingFee, decimal shopperFeePerItem, decimal shopperFeeMinimum, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -265,7 +283,6 @@ public sealed class OrderRepository
             await itemCmd.ExecuteNonQueryAsync(ct);
         }
 
-        var haulingFee = totalM3 * haulingRate;
         var shopperFee = shopRequested ? Math.Max(items.Count * shopperFeePerItem, shopperFeeMinimum) : 0;
 
         // Recalculate total_actual_isk from carried-over actual prices
@@ -277,13 +294,16 @@ public sealed class OrderRepository
 
         await using var updateCmd = new NpgsqlCommand(@"
             UPDATE hauling.orders SET origin_system = @origin, destination_system = @dest,
-                shop_requested = @shop, notes = @notes, total_m3 = @m3, total_estimated_isk = @isk,
+                shop_requested = @shop, expedite = @expedite, expedite_fee = @efee,
+                notes = @notes, total_m3 = @m3, total_estimated_isk = @isk,
                 total_actual_isk = @actisk, hauling_fee = @hfee, shopper_fee = @sfee, updated_at = now()
             WHERE order_id = @oid", conn, tx);
         updateCmd.Parameters.AddWithValue("actisk", totalActualIsk.HasValue ? totalActualIsk.Value : DBNull.Value);
         updateCmd.Parameters.AddWithValue("origin", originSystem);
         updateCmd.Parameters.AddWithValue("dest", destinationSystem);
         updateCmd.Parameters.AddWithValue("shop", shopRequested);
+        updateCmd.Parameters.AddWithValue("expedite", expedite);
+        updateCmd.Parameters.AddWithValue("efee", expediteFee);
         updateCmd.Parameters.AddWithValue("notes", notes);
         updateCmd.Parameters.AddWithValue("m3", totalM3);
         updateCmd.Parameters.AddWithValue("isk", totalEstimatedIsk);
@@ -295,12 +315,24 @@ public sealed class OrderRepository
         await tx.CommitAsync(ct);
     }
 
+    public async Task<bool> ArchiveOrderAsync(long orderId, CancellationToken ct)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = new NpgsqlCommand(@"
+            UPDATE hauling.orders
+            SET archived = true, archived_at = now(), updated_at = now()
+            WHERE order_id = @oid AND archived = false", conn);
+        cmd.Parameters.AddWithValue("oid", orderId);
+        return await cmd.ExecuteNonQueryAsync(ct) > 0;
+    }
+
     public async Task<bool> AssignHaulerAsync(long orderId, long characterId, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var cmd = new NpgsqlCommand(
-            "UPDATE hauling.orders SET assigned_to = @cid, updated_at = now() WHERE order_id = @oid", conn);
+            "UPDATE hauling.orders SET assigned_to = @cid, updated_at = now() WHERE order_id = @oid AND archived = false", conn);
         cmd.Parameters.AddWithValue("cid", characterId);
         cmd.Parameters.AddWithValue("oid", orderId);
         return await cmd.ExecuteNonQueryAsync(ct) > 0;
@@ -311,6 +343,13 @@ public sealed class OrderRepository
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
+
+        // Refuse delete on archived orders (defense-in-depth)
+        await using var checkCmd = new NpgsqlCommand("SELECT archived FROM hauling.orders WHERE order_id = @oid", conn, tx);
+        checkCmd.Parameters.AddWithValue("oid", orderId);
+        var archived = await checkCmd.ExecuteScalarAsync(ct);
+        if (archived is null) { await tx.RollbackAsync(ct); return false; }
+        if (archived is bool b && b) { await tx.RollbackAsync(ct); return false; }
 
         await using var itemsCmd = new NpgsqlCommand("DELETE FROM hauling.order_items WHERE order_id = @oid", conn, tx);
         itemsCmd.Parameters.AddWithValue("oid", orderId);
@@ -360,6 +399,8 @@ public class OrderSummary
     public string DestinationSystem { get; set; } = "";
     public string Status { get; set; } = "";
     public bool ShopRequested { get; set; }
+    public bool Expedite { get; set; }
+    public decimal ExpediteFee { get; set; }
     public decimal TotalM3 { get; set; }
     public decimal TotalEstimatedIsk { get; set; }
     public decimal? TotalActualIsk { get; set; }
@@ -370,6 +411,8 @@ public class OrderSummary
     public long? AssignedTo { get; set; }
     public string? AssignedToName { get; set; }
     public string Notes { get; set; } = "";
+    public bool Archived { get; set; }
+    public DateTime? ArchivedAt { get; set; }
 }
 
 public sealed class OrderDetail : OrderSummary
