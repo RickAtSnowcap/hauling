@@ -175,7 +175,7 @@ export default function OrderList({ user, onEditOrder }: Props) {
               <span>{order.total_m3.toFixed(0)} m3</span>
               <span>{order.origin_system} → {order.destination_system}</span>
               <span>{order.shop_requested ? 'Shop+Haul' : 'Haul Only'}</span>
-              {order.expedite && <span>Expedite</span>}
+              {order.expedite && <span>Rush</span>}
               {order.assigned_to_name && <span>Hauler: {order.assigned_to_name}</span>}
             </div>
             <div className="order-card-date">{formatDate(order.created_at)}</div>
@@ -193,7 +193,7 @@ export default function OrderList({ user, onEditOrder }: Props) {
             <span>By: {selectedOrder.character_name}</span>
             <span>Route: {selectedOrder.origin_system} → {selectedOrder.destination_system}</span>
             <span>Type: {selectedOrder.shop_requested ? 'Shop + Haul' : 'Haul Only'}</span>
-            {selectedOrder.expedite && <span>Expedite: Yes</span>}
+            {selectedOrder.expedite && <span>Rush: Yes</span>}
             {selectedOrder.assigned_to_name && <span>Hauler: {selectedOrder.assigned_to_name}</span>}
             <span>Created: {formatDate(selectedOrder.created_at)}</span>
           </div>
@@ -315,9 +315,9 @@ export default function OrderList({ user, onEditOrder }: Props) {
             <div><span>Total m³:</span><span>{selectedOrder.total_m3.toFixed(2)}</span></div>
             {selectedOrder.shop_requested && <div><span>Est. Cost:</span><span>{formatIsk(selectedOrder.total_estimated_isk)} ISK</span></div>}
             {selectedOrder.shop_requested && selectedOrder.total_actual_isk !== null && <div><span>Actual Cost:</span><span>{formatIsk(selectedOrder.total_actual_isk)} ISK</span></div>}
-            <div><span>Hauling Fee:</span><span>{formatIsk(selectedOrder.hauling_fee)} ISK</span></div>
+            <div><span>Hauling Fee{selectedOrder.expedite ? ' (Rush)' : ''}:</span><span>{formatIsk(selectedOrder.hauling_fee)} ISK</span></div>
             {selectedOrder.shop_requested && selectedOrder.shopper_fee > 0 && <div><span>Shopper Fee (flat):</span><span>{formatIsk(selectedOrder.shopper_fee)} ISK</span></div>}
-            {selectedOrder.expedite && selectedOrder.expedite_fee > 0 && <div><span>Expedite Fee:</span><span>{formatIsk(selectedOrder.expedite_fee)} ISK</span></div>}
+            {selectedOrder.expedite_fee > 0 && <div><span>Legacy Expedite Fee:</span><span>{formatIsk(selectedOrder.expedite_fee)} ISK</span></div>}
             {['picking_up', 'in_transit', 'delivered'].includes(selectedOrder.status) && (
               <div className="total-row grand-total"><span>Delivery Contract Amount:</span><span>{formatIsk(
                 (selectedOrder.shop_requested

@@ -15,19 +15,21 @@ var connStr = Environment.GetEnvironmentVariable("HAULING_DB") ?? "";
 var jwtKey = Environment.GetEnvironmentVariable("HAULING_JWT_KEY") ?? "default-dev-key-change-me-in-prod";
 var clientId = Environment.GetEnvironmentVariable("EVE_SSO_CLIENT_ID") ?? "";
 var clientSecret = Environment.GetEnvironmentVariable("EVE_SSO_CLIENT_SECRET") ?? "";
-var callbackUrl = Environment.GetEnvironmentVariable("EVE_SSO_CALLBACK") ?? "https://bendigo7.com/hauling/callback";
+var callbackUrl = Environment.GetEnvironmentVariable("EVE_SSO_CALLBACK") ?? "https://hauling.angry.no/callback";
 
 var userRepo = new UserRepository(connStr);
 var ssoService = new EveSsoService(clientId, clientSecret, callbackUrl);
 var authService = new AuthService(jwtKey);
 var itemRepo = new ItemRepository(connStr);
 var orderRepo = new OrderRepository(connStr);
+var routeRepo = new RouteRepository(connStr);
 
 builder.Services.AddSingleton(userRepo);
 builder.Services.AddSingleton(ssoService);
 builder.Services.AddSingleton(authService);
 builder.Services.AddSingleton(itemRepo);
 builder.Services.AddSingleton(orderRepo);
+builder.Services.AddSingleton(routeRepo);
 // EsiMarketService needs an ILogger, so let DI build it (via a factory to stay AOT-friendly).
 builder.Services.AddSingleton(sp => new EsiMarketService(sp.GetRequiredService<ILogger<EsiMarketService>>()));
 var esiResolver = new EsiItemResolver();
@@ -49,7 +51,7 @@ app.MapGet("/api/auth/login", (EveSsoService sso) =>
     return Results.Ok(new LoginResponse { Url = url, State = state });
 });
 
-// SSO callback — exchanges code for token, verifies alliance, returns JWT
+// SSO callback — exchanges code for token, verifies corp membership, returns JWT
 app.MapGet("/callback", async (string? code, string? state, EveSsoService sso, UserRepository repo, AuthService auth, CancellationToken ct) =>
 {
     if (string.IsNullOrEmpty(code))
@@ -59,9 +61,9 @@ app.MapGet("/callback", async (string? code, string? state, EveSsoService sso, U
     if (charInfo == null)
         return Results.BadRequest(new ErrorResponse { Error = "Failed to authenticate with EVE SSO" });
 
-    // Check alliance membership
-    var requiredAlliance = await repo.GetConfigAsync("alliance_id", ct);
-    if (string.IsNullOrEmpty(requiredAlliance) || charInfo.AllianceId?.ToString() != requiredAlliance)
+    // Check corp membership
+    var requiredCorp = await repo.GetConfigAsync("corp_id", ct);
+    if (string.IsNullOrEmpty(requiredCorp) || charInfo.CorporationId.ToString() != requiredCorp)
     {
         return Results.Redirect($"/?denied={Uri.EscapeDataString(charInfo.CharacterName)}");
     }
@@ -163,42 +165,48 @@ TokenClaims? GetClaims(HttpRequest request, AuthService auth)
     return string.IsNullOrEmpty(token) ? null : auth.ValidateToken(token);
 }
 
-// AMA Hauling supported routes: every trip has Z19-B8 as one endpoint, the other is Jita or Odebeinn.
-// Returns null if valid, an error string otherwise.
-static string? ValidateRoute(string origin, string destination)
+async Task<(decimal haulingFee, decimal shopperFee)> CalculateFeesAsync(
+    RouteInfo route, decimal totalM3, bool rush, bool shopRequested,
+    UserRepository users, EsiMarketService esi, CancellationToken ct)
 {
-    var inbound = (origin == "Jita" || origin == "Odebeinn") && destination == "Z19-B8";
-    var outbound = origin == "Z19-B8" && (destination == "Jita" || destination == "Odebeinn");
-    if (inbound || outbound) return null;
-    return $"Unsupported route {origin} → {destination}. Valid routes: Jita↔Z19-B8, Odebeinn↔Z19-B8.";
+    var isotopeTypeId = int.Parse(await users.GetConfigAsync("isotope_type_id", ct));
+    var isotopePrice = await esi.GetIsotopePriceAsync(isotopeTypeId, ct);
+    var cargoCapacity = decimal.Parse(await users.GetConfigAsync("cargo_capacity_m3", ct));
+    var fuelIskPerM3 = (isotopePrice * route.RoundTripIsotopes) / cargoCapacity;
+
+    decimal pushxFee = 0;
+    if (route.HasPushx)
+    {
+        var tierBreak = decimal.Parse(await users.GetConfigAsync("pushx_volume_tier_break", ct));
+        var small = totalM3 <= tierBreak;
+        var key = rush
+            ? (small ? "pushx_rush_fee_small" : "pushx_rush_fee_large")
+            : (small ? "pushx_fee_small" : "pushx_fee_large");
+        pushxFee = decimal.Parse(await users.GetConfigAsync(key, ct));
+    }
+
+    var serviceIsk = decimal.Parse(await users.GetConfigAsync("service_isk_per_m3", ct));
+    var haulingFee = pushxFee + (fuelIskPerM3 + serviceIsk) * totalM3;
+
+    var shopperFeeConfig = decimal.Parse(await users.GetConfigAsync("shopper_fee", ct));
+    var shopperFee = shopRequested && route.AllowsShopping ? shopperFeeConfig : 0;
+
+    return (haulingFee, shopperFee);
 }
 
 // POST /api/orders — create a new order
 app.MapPost("/api/orders", async (HttpRequest request, CreateOrderRequest body, AuthService auth,
-    OrderRepository orders, UserRepository users, EsiMarketService esi, CancellationToken ct) =>
+    OrderRepository orders, UserRepository users, EsiMarketService esi, RouteRepository routes, CancellationToken ct) =>
 {
     var claims = GetClaims(request, auth);
     if (claims == null) return Results.Unauthorized();
 
-    // Validate the route pair — every trip must have Z19-B8 as one endpoint
-    var routeError = ValidateRoute(body.OriginSystem, body.DestinationSystem);
-    if (routeError != null) return Results.BadRequest(new ErrorResponse { Error = routeError });
+    var route = await routes.GetRouteAsync(body.OriginSystem, body.DestinationSystem, ct);
+    if (route == null)
+        return Results.BadRequest(new ErrorResponse { Error = $"Unsupported route {body.OriginSystem} → {body.DestinationSystem}" });
 
-    // Evola handles the highsec leg whenever Jita is an endpoint (in either direction)
-    var evolaRoute = body.OriginSystem == "Jita" || body.DestinationSystem == "Jita";
-    var expedite = body.Expedite && evolaRoute;
-    // Shopper only makes sense when buying at Jita — origin must be Jita
-    var shopRequested = body.ShopRequested && body.OriginSystem == "Jita";
-
-    // Read pricing components (Path B — Evola pass-through model)
-    var evolaIsk = decimal.Parse(await users.GetConfigAsync("evola_isk_per_m3", ct));
-    var evolaPct = decimal.Parse(await users.GetConfigAsync("evola_collateral_pct", ct));
-    var evolaMin = decimal.Parse(await users.GetConfigAsync("evola_minimum", ct));
-    var fuelIsk = decimal.Parse(await users.GetConfigAsync("fuel_isk_per_m3", ct));
-    var serviceIsk = decimal.Parse(await users.GetConfigAsync("service_isk_per_m3", ct));
-    var shopperFeePerItem = decimal.Parse(await users.GetConfigAsync("shopper_fee_per_item", ct));
-    var shopperFeeMinimum = decimal.Parse(await users.GetConfigAsync("shopper_fee_minimum", ct));
-    var expediteFee = expedite ? decimal.Parse(await users.GetConfigAsync("expedite_fee", ct)) : 0;
+    var rush = body.Expedite && route.HasPushx;
+    var shopRequested = body.ShopRequested && route.AllowsShopping;
     var maxM3 = decimal.Parse(await users.GetConfigAsync("max_order_m3", ct));
 
     var items = body.Items.Select(i => new OrderItemInput
@@ -209,37 +217,17 @@ app.MapPost("/api/orders", async (HttpRequest request, CreateOrderRequest body, 
         EstimatedPrice = i.EstimatedPrice
     }).ToList();
 
-    // Server-side price backfill. The client fetches Jita prices opportunistically and can
-    // silently leave a line at 0 (e.g. ESI throttled the last item of a large order). On an
-    // Evola route the estimate feeds the 1% collateral charge, so a stray 0 undercharges the
-    // haul — fill any zero-priced line here authoritatively before the math and the save.
-    if (evolaRoute)
-    {
-        foreach (var item in items.Where(i => i.EstimatedPrice == 0 && i.TypeId > 0))
-        {
-            var price = await esi.TryGetJitaSellPriceAsync(item.TypeId, ct);
-            if (price is > 0) item.EstimatedPrice = price.Value;
-        }
-    }
-
-    // Check total m3 against max
     var totalM3 = items.Sum(i => i.VolumePerUnit * i.Quantity);
     if (totalM3 > maxM3)
         return Results.BadRequest(new ErrorResponse { Error = $"Order exceeds maximum capacity of {maxM3:N0} m³ ({totalM3:N2} m³ requested)" });
 
-    // Path B hauling fee: Evola pass-through whenever Jita is an endpoint, fuel+service only otherwise
-    var cargoValue = items.Sum(i => i.EstimatedPrice * i.Quantity);
-    var haulingFee = evolaRoute
-        ? Math.Max(evolaIsk * totalM3 + evolaPct * cargoValue, evolaMin) + (fuelIsk + serviceIsk) * totalM3
-        : (fuelIsk + serviceIsk) * totalM3;
+    var (haulingFee, shopperFee) = await CalculateFeesAsync(route, totalM3, rush, shopRequested, users, esi, ct);
 
     var orderId = await orders.CreateOrderAsync(claims.CharacterId, body.OriginSystem, body.DestinationSystem,
-        shopRequested, expedite, expediteFee, body.Notes, items, haulingFee, shopperFeePerItem, shopperFeeMinimum, ct);
+        shopRequested, rush, body.Notes, items, haulingFee, shopperFee, ct);
 
-    // Notify Discord
-    var sFee = shopRequested ? Math.Max(items.Count * shopperFeePerItem, shopperFeeMinimum) : 0;
     _ = discord.NotifyNewOrderAsync(orderId, claims.CharacterName, body.OriginSystem, body.DestinationSystem,
-        shopRequested, totalM3, haulingFee, sFee, items.Count);
+        shopRequested, rush, totalM3, haulingFee, shopperFee, items.Count);
 
     return Results.Created($"/api/orders/{orderId}", new OrderCreatedResponse { OrderId = orderId });
 });
@@ -309,7 +297,7 @@ app.MapPut("/api/orders/{id:long}/status", async (long id, HttpRequest request, 
 
 // PUT /api/orders/{id}/items — edit order line items (member own order while pending/accepted, or admin)
 app.MapPut("/api/orders/{id:long}/items", async (long id, HttpRequest request, CreateOrderRequest body,
-    AuthService auth, OrderRepository orders, UserRepository users, EsiMarketService esi, CancellationToken ct) =>
+    AuthService auth, OrderRepository orders, UserRepository users, EsiMarketService esi, RouteRepository routes, CancellationToken ct) =>
 {
     var claims = GetClaims(request, auth);
     if (claims == null) return Results.Unauthorized();
@@ -334,26 +322,15 @@ app.MapPut("/api/orders/{id:long}/items", async (long id, HttpRequest request, C
     }
     // admin can edit
 
-    // Use new origin/destination if provided, otherwise keep existing
     var originSystem = !string.IsNullOrEmpty(body.OriginSystem) ? body.OriginSystem : order.OriginSystem;
     var destinationSystem = !string.IsNullOrEmpty(body.DestinationSystem) ? body.DestinationSystem : order.DestinationSystem;
 
-    var routeError = ValidateRoute(originSystem, destinationSystem);
-    if (routeError != null) return Results.BadRequest(new ErrorResponse { Error = routeError });
+    var route = await routes.GetRouteAsync(originSystem, destinationSystem, ct);
+    if (route == null)
+        return Results.BadRequest(new ErrorResponse { Error = $"Unsupported route {originSystem} → {destinationSystem}" });
 
-    var evolaRoute = originSystem == "Jita" || destinationSystem == "Jita";
-    var expedite = body.Expedite && evolaRoute;
-    var shopRequested = body.ShopRequested && originSystem == "Jita";
-
-    // Read pricing components (Path B — Evola pass-through model)
-    var evolaIsk = decimal.Parse(await users.GetConfigAsync("evola_isk_per_m3", ct));
-    var evolaPct = decimal.Parse(await users.GetConfigAsync("evola_collateral_pct", ct));
-    var evolaMin = decimal.Parse(await users.GetConfigAsync("evola_minimum", ct));
-    var fuelIsk = decimal.Parse(await users.GetConfigAsync("fuel_isk_per_m3", ct));
-    var serviceIsk = decimal.Parse(await users.GetConfigAsync("service_isk_per_m3", ct));
-    var shopperFeePerItem = decimal.Parse(await users.GetConfigAsync("shopper_fee_per_item", ct));
-    var shopperFeeMinimum = decimal.Parse(await users.GetConfigAsync("shopper_fee_minimum", ct));
-    var expediteFee = expedite ? decimal.Parse(await users.GetConfigAsync("expedite_fee", ct)) : 0;
+    var rush = body.Expedite && route.HasPushx;
+    var shopRequested = body.ShopRequested && route.AllowsShopping;
 
     var itemInputs = body.Items.Select(i => new OrderItemInput
     {
@@ -363,25 +340,10 @@ app.MapPut("/api/orders/{id:long}/items", async (long id, HttpRequest request, C
         EstimatedPrice = i.EstimatedPrice
     }).ToList();
 
-    // Backfill any zero-priced line server-side (see POST /api/orders) so an edit can't
-    // reintroduce a stray 0 into the collateral math.
-    if (evolaRoute)
-    {
-        foreach (var item in itemInputs.Where(i => i.EstimatedPrice == 0 && i.TypeId > 0))
-        {
-            var price = await esi.TryGetJitaSellPriceAsync(item.TypeId, ct);
-            if (price is > 0) item.EstimatedPrice = price.Value;
-        }
-    }
-
-    // Path B hauling fee: Evola pass-through whenever Jita is an endpoint, fuel+service only otherwise
     var editTotalM3 = itemInputs.Sum(i => i.VolumePerUnit * i.Quantity);
-    var editCargoValue = itemInputs.Sum(i => i.EstimatedPrice * i.Quantity);
-    var editHaulingFee = evolaRoute
-        ? Math.Max(evolaIsk * editTotalM3 + evolaPct * editCargoValue, evolaMin) + (fuelIsk + serviceIsk) * editTotalM3
-        : (fuelIsk + serviceIsk) * editTotalM3;
+    var (editHaulingFee, editShopperFee) = await CalculateFeesAsync(route, editTotalM3, rush, shopRequested, users, esi, ct);
 
-    await orders.ReplaceOrderItemsAsync(id, originSystem, destinationSystem, shopRequested, expedite, expediteFee, body.Notes, itemInputs, editHaulingFee, shopperFeePerItem, shopperFeeMinimum, ct);
+    await orders.ReplaceOrderItemsAsync(id, originSystem, destinationSystem, shopRequested, rush, body.Notes, itemInputs, editHaulingFee, editShopperFee, ct);
     return Results.Ok(new HealthResponse { Status = "updated" });
 });
 
@@ -447,29 +409,43 @@ app.MapPut("/api/orders/items/{itemId:long}/actual-price", async (long itemId, H
     return Results.Ok(new HealthResponse { Status = "updated" });
 });
 
-// GET /api/config — get fee components (public for display)
-app.MapGet("/api/config", async (UserRepository users, CancellationToken ct) =>
+app.MapGet("/api/config", async (UserRepository users, RouteRepository routeRepo, EsiMarketService esi, CancellationToken ct) =>
 {
-    var evolaIsk = await users.GetConfigAsync("evola_isk_per_m3", ct);
-    var evolaPct = await users.GetConfigAsync("evola_collateral_pct", ct);
-    var evolaMin = await users.GetConfigAsync("evola_minimum", ct);
-    var fuelIsk = await users.GetConfigAsync("fuel_isk_per_m3", ct);
-    var serviceIsk = await users.GetConfigAsync("service_isk_per_m3", ct);
-    var shopperFeePerItem = await users.GetConfigAsync("shopper_fee_per_item", ct);
-    var shopperFeeMinimum = await users.GetConfigAsync("shopper_fee_minimum", ct);
-    var expediteFee = await users.GetConfigAsync("expedite_fee", ct);
-    var maxM3 = await users.GetConfigAsync("max_order_m3", ct);
+    var allRoutes = await routeRepo.GetAllRoutesAsync(ct);
+    var isotopeTypeId = int.Parse(await users.GetConfigAsync("isotope_type_id", ct));
+    var isotopePrice = await esi.GetIsotopePriceAsync(isotopeTypeId, ct);
+    var cargoCapacity = decimal.Parse(await users.GetConfigAsync("cargo_capacity_m3", ct));
+    var pushxFeeSmall = decimal.Parse(await users.GetConfigAsync("pushx_fee_small", ct));
+    var pushxFeeLarge = decimal.Parse(await users.GetConfigAsync("pushx_fee_large", ct));
+    var pushxRushFeeSmall = decimal.Parse(await users.GetConfigAsync("pushx_rush_fee_small", ct));
+    var pushxRushFeeLarge = decimal.Parse(await users.GetConfigAsync("pushx_rush_fee_large", ct));
+    var pushxVolumeTierBreak = decimal.Parse(await users.GetConfigAsync("pushx_volume_tier_break", ct));
+
+    var routeConfigs = allRoutes.Select(r => new RouteConfigResponse
+    {
+        Origin = r.Origin,
+        Destination = r.Destination,
+        RoundTripIsotopes = r.RoundTripIsotopes,
+        FuelIskPerM3 = (isotopePrice * r.RoundTripIsotopes) / cargoCapacity,
+        HasPushx = r.HasPushx,
+        AllowsShopping = r.AllowsShopping,
+        LabelOrigin = r.LabelOrigin,
+        LabelDestination = r.LabelDestination,
+        PushxFeeSmall = pushxFeeSmall,
+        PushxFeeLarge = pushxFeeLarge,
+        PushxRushFeeSmall = pushxRushFeeSmall,
+        PushxRushFeeLarge = pushxRushFeeLarge,
+        PushxVolumeTierBreak = pushxVolumeTierBreak
+    }).ToList();
+
     return Results.Ok(new ConfigResponse
     {
-        EvolaIskPerM3 = decimal.Parse(evolaIsk),
-        EvolaCollateralPct = decimal.Parse(evolaPct),
-        EvolaMinimum = decimal.Parse(evolaMin),
-        FuelIskPerM3 = decimal.Parse(fuelIsk),
-        ServiceIskPerM3 = decimal.Parse(serviceIsk),
-        ShopperFeePerItem = decimal.Parse(shopperFeePerItem),
-        ShopperFeeMinimum = decimal.Parse(shopperFeeMinimum),
-        ExpediteFee = decimal.Parse(expediteFee),
-        MaxOrderM3 = decimal.Parse(maxM3)
+        Routes = routeConfigs,
+        ServiceIskPerM3 = decimal.Parse(await users.GetConfigAsync("service_isk_per_m3", ct)),
+        ShopperFee = decimal.Parse(await users.GetConfigAsync("shopper_fee", ct)),
+        MaxOrderM3 = decimal.Parse(await users.GetConfigAsync("max_order_m3", ct)),
+        IsotopePrice = isotopePrice,
+        CargoCapacity = cargoCapacity
     });
 });
 
@@ -508,15 +484,29 @@ public sealed class OrderCreatedResponse { public long OrderId { get; set; } }
 public sealed class StatusResponse { public long OrderId { get; set; } public string Status { get; set; } = ""; }
 public sealed class ConfigResponse
 {
-    public decimal EvolaIskPerM3 { get; set; }
-    public decimal EvolaCollateralPct { get; set; }
-    public decimal EvolaMinimum { get; set; }
-    public decimal FuelIskPerM3 { get; set; }
+    public List<RouteConfigResponse> Routes { get; set; } = new();
     public decimal ServiceIskPerM3 { get; set; }
-    public decimal ShopperFeePerItem { get; set; }
-    public decimal ShopperFeeMinimum { get; set; }
-    public decimal ExpediteFee { get; set; }
+    public decimal ShopperFee { get; set; }
     public decimal MaxOrderM3 { get; set; }
+    public decimal IsotopePrice { get; set; }
+    public decimal CargoCapacity { get; set; }
+}
+
+public sealed class RouteConfigResponse
+{
+    public string Origin { get; set; } = "";
+    public string Destination { get; set; } = "";
+    public int RoundTripIsotopes { get; set; }
+    public decimal FuelIskPerM3 { get; set; }
+    public bool HasPushx { get; set; }
+    public bool AllowsShopping { get; set; }
+    public string? LabelOrigin { get; set; }
+    public string? LabelDestination { get; set; }
+    public decimal PushxFeeSmall { get; set; }
+    public decimal PushxFeeLarge { get; set; }
+    public decimal PushxRushFeeSmall { get; set; }
+    public decimal PushxRushFeeLarge { get; set; }
+    public decimal PushxVolumeTierBreak { get; set; }
 }
 
 // AOT JSON source generator
@@ -536,6 +526,8 @@ public sealed class ConfigResponse
 [JsonSerializable(typeof(OrderCreatedResponse))]
 [JsonSerializable(typeof(StatusResponse))]
 [JsonSerializable(typeof(ConfigResponse))]
+[JsonSerializable(typeof(RouteConfigResponse))]
+[JsonSerializable(typeof(List<RouteConfigResponse>))]
 [JsonSerializable(typeof(List<OrderSummary>))]
 [JsonSerializable(typeof(OrderDetail))]
 [JsonSerializable(typeof(OrderItemDetail))]

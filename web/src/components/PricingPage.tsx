@@ -1,120 +1,157 @@
+import { useState, useEffect } from 'react';
+import type { ConfigResponse } from '../types';
+import { getConfig } from '../api';
 import './PricingPage.css';
 
 export default function PricingPage() {
+  const [config, setConfig] = useState<ConfigResponse | null>(null);
+  useEffect(() => { getConfig().then(setConfig); }, []);
+
+  function fmtIsk(n: number): string {
+    return Math.round(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  }
+
+  const jitaRoutes = config?.routes.filter(r => r.has_pushx) ?? [];
+  const assetSafetyRoutes = config?.routes.filter(r =>
+    !r.has_pushx && (r.origin === 'Odebeinn' || r.origin === 'Konora')
+  ) ?? [];
+  const shuttleRoutes = config?.routes.filter(r =>
+    !r.has_pushx && r.origin !== 'Odebeinn' && r.origin !== 'Konora'
+  ) ?? [];
+
   return (
     <div className="pricing-page">
       <h1>Angry Hauling — Pricing</h1>
 
       <p className="pricing-relocation-note">
-        <strong>The Spire:</strong> Our alliance home is the <strong>Z19-B8 Black Canary</strong> fortizar.
-        The service fee is <strong>waived</strong> while we settle in.
+        <strong>Pure Blind:</strong> Edge Dancers home is <strong>DK-FXK</strong>.
+        The service fee is currently <strong>waived</strong>.
+        {config && <> Fuel rates use live Jita Nitrogen Isotope pricing ({fmtIsk(config.isotope_price)} ISK/unit).</>}
       </p>
 
       <section>
-        <h2>Routes</h2>
-        <p>Every trip has Z19-B8 as one endpoint. We run both inbound (to alliance space) and outbound (back to highsec or asset-safety).</p>
+        <h2>Jita Routes (via PushX + JF)</h2>
+        <p>PushX handles the Jita–Nonni highsec leg (5 systems), our jump freighters handle Aunenen to destination.</p>
+
+        <h3>PushX Courier Fees</h3>
+        <table className="pricing-table">
+          <thead>
+            <tr><th>Volume</th><th>Standard</th><th>Rush</th></tr>
+          </thead>
+          <tbody>
+            {jitaRoutes.length > 0 && (
+              <>
+                <tr>
+                  <td>&le; {fmtIsk(jitaRoutes[0].pushx_volume_tier_break)} m&sup3;</td>
+                  <td>{fmtIsk(jitaRoutes[0].pushx_fee_small)} ISK</td>
+                  <td>{fmtIsk(jitaRoutes[0].pushx_rush_fee_small)} ISK</td>
+                </tr>
+                <tr>
+                  <td>&gt; {fmtIsk(jitaRoutes[0].pushx_volume_tier_break)} m&sup3;</td>
+                  <td>{fmtIsk(jitaRoutes[0].pushx_fee_large)} ISK</td>
+                  <td>{fmtIsk(jitaRoutes[0].pushx_rush_fee_large)} ISK</td>
+                </tr>
+              </>
+            )}
+          </tbody>
+        </table>
+
+        <h3>JF Fuel per Route</h3>
+        <table className="pricing-table">
+          <thead>
+            <tr><th>Route</th><th>Fuel Rate</th><th>RT Isotopes</th></tr>
+          </thead>
+          <tbody>
+            {jitaRoutes.map(r => (
+              <tr key={`${r.origin}-${r.destination}`}>
+                <td>{r.origin} &rarr; {r.destination}</td>
+                <td>{fmtIsk(r.fuel_isk_per_m3)} ISK/m&sup3;</td>
+                <td>{fmtIsk(r.round_trip_isotopes)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p><strong>Formula:</strong> <code>PushX fee + (fuel + service) &times; m&sup3;</code></p>
+      </section>
+
+      <section>
+        <h2>Rush Delivery (Jita routes only)</h2>
+        <p>Tick <strong>Rush Delivery</strong> to use PushX's rush service on the Jita–Nonni leg.</p>
         <ul>
-          <li><strong>Jita 4-4 ↔ Z19-B8</strong> — Evola handles the Jita-Odebeinn leg, AMA jump freighters handle the Odebeinn-Z19 leg</li>
-          <li><strong>Odebeinn (V-V) ↔ Z19-B8</strong> — single jump freighter leg, no Evola</li>
+          <li>Cuts the Jita &harr; Nonni leg from <strong>up to 2 days</strong> down to <strong>hours</strong></li>
+          <li>The JF leg timing is unchanged — that's our team</li>
         </ul>
       </section>
 
-      <section>
-        <h2>Hauling Fee — Jita ↔ Z19-B8</h2>
-        <p>Jita trips pass through three real costs in either direction: Evola's highsec courier (Jita ↔ Odebeinn), jump freighter fuel (Odebeinn ↔ Z19-B8 round trip), and the hauler service fee.</p>
-        <table className="pricing-table">
-          <thead>
-            <tr><th>Component</th><th>Rate</th><th>What It Covers</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Evola transport</td>
-              <td>400 ISK/m³ + 1% of cargo value<br/><em>(32.5M ISK minimum)</em></td>
-              <td>Pass-through of Evola Deliveries' rate. The 1% collateral charge is what makes ships and deadspace gear cost more than ammo, m³-for-m³.</td>
-            </tr>
-            <tr>
-              <td>Jump freighter fuel</td>
-              <td>263 ISK/m³</td>
-              <td>Oxygen Isotopes for the Anshar round trip Odebeinn ↔ Z19-B8 (139,142 isotopes round trip)</td>
-            </tr>
-            <tr>
-              <td>Service fee</td>
-              <td><strong>0 ISK/m³</strong> (waived)</td>
-              <td>Currently waived during the Spire settle-in period. Expected to return at ~143 ISK/m³ (50M ISK per full load).</td>
-            </tr>
-          </tbody>
-        </table>
-        <p>
-          <strong>Formula:</strong>&nbsp;
-          <code>max(400 × m³ + 1% × cargo_value, 32.5M) + (263 + service) × m³</code>
-        </p>
-        <p>
-          We use the live Jita sell price for cargo value &mdash; this matters in both directions because Evola charges 1% collateral on whatever it's carrying. Items not on the Jita market (abyssals, ungrouped storage) get a 0 ISK value &mdash; please tell Bendigo Xana if your order includes those so the collateral can be hand-set.
-        </p>
-      </section>
+      {assetSafetyRoutes.length > 0 && (
+        <section>
+          <h2>Asset Safety Recovery (Inbound Only)</h2>
+          <p>Odebeinn and Konora trips are for asset safety recovery. No PushX leg, no shopping — just fuel.</p>
+          <table className="pricing-table">
+            <thead>
+              <tr><th>Route</th><th>Fuel Rate</th><th>RT Isotopes</th></tr>
+            </thead>
+            <tbody>
+              {assetSafetyRoutes.map(r => (
+                <tr key={`${r.origin}-${r.destination}`}>
+                  <td>{r.origin} &rarr; {r.destination}</td>
+                  <td>{fmtIsk(r.fuel_isk_per_m3)} ISK/m&sup3;</td>
+                  <td>{fmtIsk(r.round_trip_isotopes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p><strong>Formula:</strong> <code>(fuel + service) &times; m&sup3;</code></p>
+          <p><em>These are long hauls — the fuel cost reflects the distance.</em></p>
+        </section>
+      )}
 
-      <section>
-        <h2>What the 1% Collateral Buys You</h2>
-        <p>
-          The 1% isn't a markup &mdash; it's the cost of posting <strong>full collateral equal to your cargo's value</strong> with Evola. If anything happens to your shipment between Jita and Odebeinn, Evola pays out the full cargo value from that collateral. It's effectively insurance, baked into the rate.
-        </p>
-        <p>
-          That coverage matters because the <strong>Jita ↔ Odebeinn leg is the risky one</strong>. It runs through highsec and lowsec chokepoints where most courier losses actually happen &mdash; in either direction.
-        </p>
-        <p>
-          The <strong>Odebeinn ↔ Z19-B8 jump freighter leg is the safer half.</strong> It's a direct jump between a known staging system and alliance space, flown by AMA pilots in well-fit Anshars. Risk exists, but in practice it's a small fraction of what the highsec/lowsec corridor sees.
-        </p>
-        <p>
-          Short version: when you pay the 1%, you're insuring the most dangerous part of the trip. The cheaper part of the route is also the safer part.
-        </p>
-      </section>
-
-      <section>
-        <h2>Hauling Fee — Odebeinn ↔ Z19-B8</h2>
-        <p>Odebeinn trips skip the Evola leg entirely, in either direction. You pay fuel and service, full stop.</p>
-        <table className="pricing-table">
-          <thead>
-            <tr><th>Component</th><th>Rate</th><th>What It Covers</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Jump freighter fuel</td>
-              <td>263 ISK/m³</td>
-              <td>Same fuel cost as the Jita route's nullsec leg</td>
-            </tr>
-            <tr>
-              <td>Service fee</td>
-              <td><strong>0 ISK/m³</strong> (waived)</td>
-              <td>Same waiver as above</td>
-            </tr>
-          </tbody>
-        </table>
-        <p><strong>Formula:</strong>&nbsp;<code>(263 + service) × m³</code></p>
-      </section>
+      {shuttleRoutes.length > 0 && (
+        <section>
+          <h2>Inter-System Shuttle</h2>
+          <p>Short JF runs between our Pure Blind stations. No PushX, no shopping — just fuel.</p>
+          <table className="pricing-table">
+            <thead>
+              <tr><th>Route</th><th>Fuel Rate</th><th>RT Isotopes</th></tr>
+            </thead>
+            <tbody>
+              {shuttleRoutes.map(r => (
+                <tr key={`${r.origin}-${r.destination}`}>
+                  <td>{r.origin} &rarr; {r.destination}</td>
+                  <td>{fmtIsk(r.fuel_isk_per_m3)} ISK/m&sup3;</td>
+                  <td>{fmtIsk(r.round_trip_isotopes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p><strong>Formula:</strong> <code>(fuel + service) &times; m&sup3;</code></p>
+        </section>
+      )}
 
       <section>
         <h2>Personal Shopper (Jita-origin only)</h2>
-        <p>If you'd like us to purchase items for you in Jita, we charge a flat fee to cover shopping time. Only available when Jita is the <em>origin</em> &mdash; we're not selling your stuff in Jita for you.</p>
+        <p>If you'd like us to purchase items for you in Jita, we charge a flat fee to cover shopping time. Only available when Jita is the <em>origin</em>.</p>
         <ul>
-          <li><strong>10,000,000 ISK</strong> flat shopper fee per order</li>
+          <li><strong>{config ? fmtIsk(config.shopper_fee) : '10,000,000'} ISK</strong> flat shopper fee per order</li>
         </ul>
-        <p>If you don't need shopping, select <strong>"Haul Only"</strong> and contract your items to the assigned hauler in the origin system.</p>
+        <p>If you don't need shopping, select <strong>"Haul Only"</strong> and contract your items to the assigned hauler at the origin.</p>
       </section>
 
       <section>
-        <h2>Expedite (Jita ↔ Z19-B8 only)</h2>
-        <p>Need it fast? Tick the <strong>Expedite</strong> checkbox to use Evola's expedited courier on the Jita-Odebeinn leg. Available in either direction on the Jita route &mdash; Odebeinn routes don't touch Evola, so there's nothing to expedite.</p>
+        <h2>Dynamic Fuel Pricing</h2>
+        <p>Fuel rates update automatically based on the live Jita sell price of Nitrogen Isotopes.</p>
         <ul>
-          <li><strong>+150,000,000 ISK</strong> flat fee, passed through from Evola</li>
-          <li>Cuts the Jita ↔ Odebeinn leg from <strong>2&ndash;3 days</strong> down to <strong>hours</strong></li>
-          <li>The Odebeinn ↔ Z19-B8 jump freighter leg timing is unchanged — that's our team</li>
+          <li><strong>Current isotope price:</strong> {config ? fmtIsk(config.isotope_price) : '...'} ISK/unit</li>
+          <li><strong>Cargo capacity:</strong> {config ? fmtIsk(config.cargo_capacity) : '370,000'} m&sup3; (Rhea)</li>
+          <li><strong>Formula:</strong> <code>(isotope price &times; round trip isotopes) / cargo capacity</code></li>
         </ul>
       </section>
 
       <section>
         <h2>Order Limits</h2>
         <ul>
-          <li><strong>Maximum volume:</strong> 350,000 m3 per order (jump freighter cargo capacity)</li>
+          <li><strong>Maximum volume:</strong> {config ? fmtIsk(config.max_order_m3) : '370,000'} m&sup3; per order (Rhea cargo capacity)</li>
+          <li><strong>Maximum cargo value:</strong> 5,000,000,000 ISK per PushX contract (Jita routes)</li>
           <li>Items must be <strong>packaged</strong> (repackaged) — assembled ships use packaged volume for pricing</li>
         </ul>
       </section>

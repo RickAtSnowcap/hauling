@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import type { ItemResult, OrderItemInput, ConfigResponse, OrderDetail } from '../types';
+import type { ItemResult, OrderItemInput, ConfigResponse, OrderDetail, RouteConfig } from '../types';
 import { searchItems, getJitaPrice, getConfig, createOrder, matchItems, updateOrderItems } from '../api';
 import { parsePyfaFit, parseContainerContents } from '../parsers';
 import './NewOrder.css';
@@ -9,18 +9,9 @@ interface Props {
   onEditComplete?: () => void;
 }
 
-// AMA Hauling supported destinations by origin. Mirrors ValidateRoute in the API —
-// every trip has Z19-B8 as one endpoint.
-const DESTINATIONS_BY_ORIGIN: Record<string, { value: string; label: string }[]> = {
-  'Jita':     [{ value: 'Z19-B8',   label: 'Z19-B8 (Black Canary)' }],
-  'Odebeinn': [{ value: 'Z19-B8',   label: 'Z19-B8 (Black Canary)' }],
-  'Z19-B8':   [{ value: 'Odebeinn', label: 'Odebeinn (V-V)' },
-               { value: 'Jita',     label: 'Jita 4-4' }],
-};
-
 export default function NewOrder({ editingOrder, onEditComplete }: Props) {
   const [origin, setOrigin] = useState('Jita');
-  const [destination, setDestination] = useState('Z19-B8');
+  const [destination, setDestination] = useState('RD-G2R');
   const [shopRequested, setShopRequested] = useState(false);
   const [expedite, setExpedite] = useState(false);
   const [items, setItems] = useState<OrderItemInput[]>([]);
@@ -71,15 +62,14 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  // Evola handles the highsec leg whenever Jita is an endpoint (in either direction).
-  const evolaInvolved = origin === 'Jita' || destination === 'Jita';
-  // Personal shopper only applies when buying at Jita.
-  const shopperAvailable = origin === 'Jita';
+  const currentRoute: RouteConfig | undefined = config?.routes.find(
+    r => r.origin === origin && r.destination === destination
+  );
+  const shopperAvailable = currentRoute?.allows_shopping ?? false;
 
-  // Fetch Jita prices retroactively when route becomes Evola-routed or shopper toggles on.
-  // Path B: Evola routes always need cargo_value for the 1% collateral charge, even haul-only.
+  // Fetch Jita prices for shopper orders (needed for estimated item cost display).
   useEffect(() => {
-    if (!evolaInvolved || items.length === 0) return;
+    if (!shopRequested || items.length === 0) return;
     const needsPrices = items.filter(i => i.estimated_price === 0 && i.type_id > 0);
     if (needsPrices.length === 0) return;
 
@@ -92,7 +82,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
       }
       setItems(updated);
     })();
-  }, [evolaInvolved, shopRequested, items.length]);
+  }, [shopRequested, items.length]);
 
   function handleSearch(q: string) {
     setSearchQuery(q);
@@ -115,7 +105,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
     }
     setShowResults(false);
     setSearchQuery('');
-    const price = evolaInvolved ? await getJitaPrice(item.type_id) : 0;
+    const price = shopRequested ? await getJitaPrice(item.type_id) : 0;
     setItems(prev => [...prev, {
       type_id: item.type_id,
       type_name: item.type_name,
@@ -191,7 +181,7 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
         if (existingIdx >= 0) {
           newItems[existingIdx] = { ...newItems[existingIdx], quantity: newItems[existingIdx].quantity + qty };
         } else {
-          const price = evolaInvolved ? await getJitaPrice(item.type_id) : 0;
+          const price = shopRequested ? await getJitaPrice(item.type_id) : 0;
           newItems.push({
             type_id: item.type_id,
             type_name: item.type_name,
@@ -240,26 +230,21 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
 
   const totalM3 = items.reduce((sum, i) => sum + i.volume_per_unit * i.quantity, 0);
   const totalEstIsk = items.reduce((sum, i) => sum + i.estimated_price * i.quantity, 0);
-  // Path B hauling fee: Evola pass-through whenever Jita is an endpoint, fuel+service only otherwise
   let haulingFee = 0;
-  if (config) {
-    if (evolaInvolved) {
-      const evolaCost = Math.max(
-        config.evola_isk_per_m3 * totalM3 + config.evola_collateral_pct * totalEstIsk,
-        config.evola_minimum
-      );
-      haulingFee = evolaCost + (config.fuel_isk_per_m3 + config.service_isk_per_m3) * totalM3;
-    } else {
-      haulingFee = (config.fuel_isk_per_m3 + config.service_isk_per_m3) * totalM3;
+  if (config && currentRoute) {
+    let pushxFee = 0;
+    if (currentRoute.has_pushx) {
+      const small = totalM3 <= currentRoute.pushx_volume_tier_break;
+      pushxFee = expedite
+        ? (small ? currentRoute.pushx_rush_fee_small : currentRoute.pushx_rush_fee_large)
+        : (small ? currentRoute.pushx_fee_small : currentRoute.pushx_fee_large);
     }
+    haulingFee = pushxFee + (currentRoute.fuel_isk_per_m3 + config.service_isk_per_m3) * totalM3;
   }
-  const shopperFee = shopRequested && config
-    ? config.shopper_fee_minimum
-    : 0;
-  const expediteFee = expedite && config ? config.expedite_fee : 0;
-  const feesTotal = haulingFee + shopperFee + expediteFee;
+  const shopperFee = shopRequested && config ? config.shopper_fee : 0;
+  const feesTotal = haulingFee + shopperFee;
   const grandTotal = (shopRequested ? totalEstIsk : 0) + feesTotal;
-  const maxM3 = config?.max_order_m3 ?? 300000;
+  const maxM3 = config?.max_order_m3 ?? 370000;
   const overCapacity = totalM3 > maxM3;
 
   async function handleSubmit() {
@@ -328,16 +313,20 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
           <label>Origin:</label>
           <select value={origin} onChange={e => {
             const newOrigin = e.target.value;
-            const validDests = DESTINATIONS_BY_ORIGIN[newOrigin];
-            const newDest = validDests.some(d => d.value === destination) ? destination : validDests[0].value;
             setOrigin(newOrigin);
+            const destsForOrigin = config?.routes
+              .filter(r => r.origin === newOrigin)
+              .map(r => r.destination) ?? [];
+            const newDest = destsForOrigin.includes(destination) ? destination : destsForOrigin[0] ?? '';
             setDestination(newDest);
-            if (newOrigin !== 'Jita') setShopRequested(false);
-            if (newOrigin !== 'Jita' && newDest !== 'Jita') setExpedite(false);
+            const newRoute = config?.routes.find(r => r.origin === newOrigin && r.destination === newDest);
+            if (!newRoute?.allows_shopping) setShopRequested(false);
+            if (!newRoute?.has_pushx) setExpedite(false);
           }}>
-            <option value="Jita">Jita (market hub)</option>
-            <option value="Odebeinn">Odebeinn (asset safety)</option>
-            <option value="Z19-B8">Z19-B8 (Black Canary)</option>
+            {config && [...new Set(config.routes.map(r => r.origin))].map(o => {
+              const label = config.routes.find(r => r.origin === o)?.label_origin ?? o;
+              return <option key={o} value={o}>{label}</option>;
+            })}
           </select>
         </div>
         <div className="route-field">
@@ -345,30 +334,32 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
           <select value={destination} onChange={e => {
             const newDest = e.target.value;
             setDestination(newDest);
-            // Reset expedite if neither endpoint will be Jita
-            if (origin !== 'Jita' && newDest !== 'Jita') setExpedite(false);
+            const newRoute = config?.routes.find(r => r.origin === origin && r.destination === newDest);
+            if (!newRoute?.has_pushx) setExpedite(false);
           }}>
-            {DESTINATIONS_BY_ORIGIN[origin].map(d => (
-              <option key={d.value} value={d.value}>{d.label}</option>
-            ))}
+            {config?.routes
+              .filter(r => r.origin === origin)
+              .map(r => (
+                <option key={r.destination} value={r.destination}>{r.label_destination ?? r.destination}</option>
+              ))}
           </select>
         </div>
       </div>
 
-      {(shopperAvailable || evolaInvolved) && (
+      {(shopperAvailable || currentRoute?.has_pushx) && (
         <div className="order-options">
           {shopperAvailable && (
             <label className="shop-toggle">
               <input type="checkbox" checked={shopRequested} onChange={e => setShopRequested(e.target.checked)} />
               <span>Personal Shopper</span>
-              <span className="shop-hint">{shopRequested ? 'Enabled: We buy items for you (per-item fee)' : 'Disabled: You provide items at origin, we haul'}</span>
+              <span className="shop-hint">{shopRequested ? 'Enabled: We buy items for you (flat fee)' : 'Disabled: You provide items at origin, we haul'}</span>
             </label>
           )}
-          {evolaInvolved && (
+          {currentRoute?.has_pushx && (
             <label className="shop-toggle">
               <input type="checkbox" checked={expedite} onChange={e => setExpedite(e.target.checked)} />
-              <span>Expedite (+{config ? (config.expedite_fee / 1_000_000).toFixed(0) : '150'}M ISK)</span>
-              <span className="shop-hint">{expedite ? 'Enabled: Evola fast courier — hours instead of days' : 'Disabled: Standard Evola courier — 2 to 3 days'}</span>
+              <span>Rush Delivery</span>
+              <span className="shop-hint">{expedite ? 'Enabled: PushX rush courier — hours instead of days' : 'Disabled: Standard PushX courier — up to 2 days'}</span>
             </label>
           )}
         </div>
@@ -471,9 +462,8 @@ export default function NewOrder({ editingOrder, onEditComplete }: Props) {
           <div className="order-totals">
             <div className={`total-row ${overCapacity ? 'over-capacity' : ''}`}><span>Total Volume:</span><span>{formatM3(totalM3)} / {formatM3(maxM3)} m³</span></div>
             {shopRequested && <div className="total-row"><span>Estimated Item Cost:</span><span>{formatIsk(totalEstIsk)} ISK</span></div>}
-            <div className="total-row"><span>Hauling Fee:</span><span>{formatIsk(haulingFee)} ISK</span></div>
+            <div className="total-row"><span>Hauling Fee{expedite ? ' (Rush)' : ''}:</span><span>{formatIsk(haulingFee)} ISK</span></div>
             {shopRequested && <div className="total-row"><span>Shopper Fee (flat):</span><span>{formatIsk(shopperFee)} ISK</span></div>}
-            {expedite && <div className="total-row"><span>Expedite Fee:</span><span>{formatIsk(expediteFee)} ISK</span></div>}
             <div className="total-row grand-total"><span>{shopRequested ? 'Grand Total:' : 'Total Fee:'}</span><span>{formatIsk(shopRequested ? grandTotal : feesTotal)} ISK</span></div>
           </div>
 

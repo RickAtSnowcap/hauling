@@ -12,8 +12,8 @@ public sealed class OrderRepository
     }
 
     public async Task<long> CreateOrderAsync(long characterId, string originSystem, string destinationSystem,
-        bool shopRequested, bool expedite, decimal expediteFee, string notes, List<OrderItemInput> items,
-        decimal haulingFee, decimal shopperFeePerItem, decimal shopperFeeMinimum, CancellationToken ct)
+        bool shopRequested, bool rush, string notes, List<OrderItemInput> items,
+        decimal haulingFee, decimal shopperFee, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -27,18 +27,15 @@ public sealed class OrderRepository
             totalEstimatedIsk += item.EstimatedPrice * item.Quantity;
         }
 
-        var shopperFee = shopRequested ? Math.Max(items.Count * shopperFeePerItem, shopperFeeMinimum) : 0;
-
         await using var orderCmd = new NpgsqlCommand(@"
             INSERT INTO hauling.orders (character_id, origin_system, destination_system, shop_requested, expedite, expedite_fee, notes, total_m3, total_estimated_isk, hauling_fee, shopper_fee)
-            VALUES (@cid, @origin, @dest, @shop, @expedite, @efee, @notes, @m3, @isk, @hfee, @sfee)
+            VALUES (@cid, @origin, @dest, @shop, @expedite, 0, @notes, @m3, @isk, @hfee, @sfee)
             RETURNING order_id", conn, tx);
         orderCmd.Parameters.AddWithValue("cid", characterId);
         orderCmd.Parameters.AddWithValue("origin", originSystem);
         orderCmd.Parameters.AddWithValue("dest", destinationSystem);
         orderCmd.Parameters.AddWithValue("shop", shopRequested);
-        orderCmd.Parameters.AddWithValue("expedite", expedite);
-        orderCmd.Parameters.AddWithValue("efee", expediteFee);
+        orderCmd.Parameters.AddWithValue("expedite", rush);
         orderCmd.Parameters.AddWithValue("notes", notes);
         orderCmd.Parameters.AddWithValue("m3", totalM3);
         orderCmd.Parameters.AddWithValue("isk", totalEstimatedIsk);
@@ -236,8 +233,8 @@ public sealed class OrderRepository
     }
 
     public async Task ReplaceOrderItemsAsync(long orderId, string originSystem, string destinationSystem,
-        bool shopRequested, bool expedite, decimal expediteFee, string notes, List<OrderItemInput> items,
-        decimal haulingFee, decimal shopperFeePerItem, decimal shopperFeeMinimum, CancellationToken ct)
+        bool shopRequested, bool rush, string notes, List<OrderItemInput> items,
+        decimal haulingFee, decimal shopperFee, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -283,8 +280,6 @@ public sealed class OrderRepository
             await itemCmd.ExecuteNonQueryAsync(ct);
         }
 
-        var shopperFee = shopRequested ? Math.Max(items.Count * shopperFeePerItem, shopperFeeMinimum) : 0;
-
         // Recalculate total_actual_isk from carried-over actual prices
         await using var actualCmd = new NpgsqlCommand(
             "SELECT COALESCE(SUM(actual_price * quantity), NULL) FROM hauling.order_items WHERE order_id = @oid AND actual_price IS NOT NULL", conn, tx);
@@ -294,7 +289,7 @@ public sealed class OrderRepository
 
         await using var updateCmd = new NpgsqlCommand(@"
             UPDATE hauling.orders SET origin_system = @origin, destination_system = @dest,
-                shop_requested = @shop, expedite = @expedite, expedite_fee = @efee,
+                shop_requested = @shop, expedite = @expedite, expedite_fee = 0,
                 notes = @notes, total_m3 = @m3, total_estimated_isk = @isk,
                 total_actual_isk = @actisk, hauling_fee = @hfee, shopper_fee = @sfee, updated_at = now()
             WHERE order_id = @oid", conn, tx);
@@ -302,8 +297,7 @@ public sealed class OrderRepository
         updateCmd.Parameters.AddWithValue("origin", originSystem);
         updateCmd.Parameters.AddWithValue("dest", destinationSystem);
         updateCmd.Parameters.AddWithValue("shop", shopRequested);
-        updateCmd.Parameters.AddWithValue("expedite", expedite);
-        updateCmd.Parameters.AddWithValue("efee", expediteFee);
+        updateCmd.Parameters.AddWithValue("expedite", rush);
         updateCmd.Parameters.AddWithValue("notes", notes);
         updateCmd.Parameters.AddWithValue("m3", totalM3);
         updateCmd.Parameters.AddWithValue("isk", totalEstimatedIsk);

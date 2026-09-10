@@ -14,11 +14,12 @@ public sealed class DiscordNotifier
     }
 
     public async Task NotifyNewOrderAsync(long orderId, string characterName, string origin, string destination,
-        bool shopRequested, decimal totalM3, decimal haulingFee, decimal shopperFee, int itemCount)
+        bool shopRequested, bool rush, decimal totalM3, decimal haulingFee, decimal shopperFee, int itemCount)
     {
         if (string.IsNullOrEmpty(_webhookUrl)) return;
 
         var mode = shopRequested ? "Shop + Haul" : "Haul Only";
+        if (rush) mode += " (Rush)";
         var feeTotal = haulingFee + shopperFee;
 
         var description = $"**Order #{orderId}** placed by **{characterName}**\n"

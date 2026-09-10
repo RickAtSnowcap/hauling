@@ -61,10 +61,10 @@ function DeniedPage({ characterName, onBack }: { characterName: string; onBack: 
         <h1>Access Denied</h1>
         <p className="denied-char">{characterName}</p>
         <p className="denied-msg">
-          Angry Hauling is available to <strong>Angry Miners Alliance.</strong> members only.
+          Angry Hauling is available to <strong>Edge Dancers</strong> corp members only.
         </p>
         <p className="denied-hint">
-          If you believe this is an error, make sure you're logging in with a character that is in the alliance.
+          If you believe this is an error, make sure you're logging in with a character that is in the corp.
         </p>
         <button className="denied-btn" onClick={onBack}>Back to Login</button>
       </div>

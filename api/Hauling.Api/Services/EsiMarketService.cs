@@ -9,6 +9,12 @@ public sealed class EsiMarketService
     private readonly ILogger<EsiMarketService> _logger;
     private const long TheForgeRegionId = 10000002; // Jita's region
     private const int MaxAttempts = 3;
+    private const int IsotopeCacheTtlMinutes = 15;
+    private const decimal FallbackIsotopePrice = 640m;
+
+    private decimal? _cachedIsotopePrice;
+    private DateTime _isotopeCacheExpiry = DateTime.MinValue;
+    private readonly SemaphoreSlim _isotopeLock = new(1, 1);
 
     public EsiMarketService(ILogger<EsiMarketService> logger)
     {
@@ -18,6 +24,41 @@ public sealed class EsiMarketService
         // throttled hardest — that is what silently zeroed the last item of a large order.
         _http.DefaultRequestHeaders.UserAgent.ParseAdd(
             "AMA-Hauling/1.0 (+https://hauling.angry.no; maintainer: Bendigo Xana)");
+    }
+
+    public async Task<decimal> GetIsotopePriceAsync(int typeId, CancellationToken ct)
+    {
+        if (_isotopeCacheExpiry > DateTime.UtcNow && _cachedIsotopePrice.HasValue)
+            return _cachedIsotopePrice.Value;
+
+        await _isotopeLock.WaitAsync(ct);
+        try
+        {
+            if (_isotopeCacheExpiry > DateTime.UtcNow && _cachedIsotopePrice.HasValue)
+                return _cachedIsotopePrice.Value;
+
+            var price = await TryGetJitaSellPriceAsync(typeId, ct);
+            if (price.HasValue && price.Value > 0)
+            {
+                _cachedIsotopePrice = price.Value;
+                _isotopeCacheExpiry = DateTime.UtcNow.AddMinutes(IsotopeCacheTtlMinutes);
+                _logger.LogInformation("Isotope price cached: {Price} ISK (type {TypeId})", price.Value, typeId);
+                return price.Value;
+            }
+
+            if (_cachedIsotopePrice.HasValue)
+            {
+                _logger.LogWarning("ESI isotope lookup failed, using last known price: {Price} ISK", _cachedIsotopePrice.Value);
+                return _cachedIsotopePrice.Value;
+            }
+
+            _logger.LogWarning("ESI isotope lookup failed with no prior cache, using fallback: {Price} ISK", FallbackIsotopePrice);
+            return FallbackIsotopePrice;
+        }
+        finally
+        {
+            _isotopeLock.Release();
+        }
     }
 
     // Lowest The Forge (Jita region) sell price for a type.

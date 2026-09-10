@@ -9,16 +9,29 @@ export interface PriceResponse {
   jita_sell_price: number;
 }
 
-export interface ConfigResponse {
-  evola_isk_per_m3: number;
-  evola_collateral_pct: number;
-  evola_minimum: number;
+export interface RouteConfig {
+  origin: string;
+  destination: string;
+  round_trip_isotopes: number;
   fuel_isk_per_m3: number;
+  has_pushx: boolean;
+  allows_shopping: boolean;
+  label_origin: string | null;
+  label_destination: string | null;
+  pushx_fee_small: number;
+  pushx_fee_large: number;
+  pushx_rush_fee_small: number;
+  pushx_rush_fee_large: number;
+  pushx_volume_tier_break: number;
+}
+
+export interface ConfigResponse {
+  routes: RouteConfig[];
   service_isk_per_m3: number;
-  shopper_fee_per_item: number;
-  shopper_fee_minimum: number;
-  expedite_fee: number;
+  shopper_fee: number;
   max_order_m3: number;
+  isotope_price: number;
+  cargo_capacity: number;
 }
 
 export interface OrderItemInput {

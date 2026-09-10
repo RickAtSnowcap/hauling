@@ -15,7 +15,7 @@ export default function LoginPage() {
     <div className="login-page">
       <div className="login-card">
         <h1>Angry Hauling</h1>
-        <p className="login-subtitle">Jump Freighter Logistics for Angry Miners Alliance.</p>
+        <p className="login-subtitle">Jump Freighter Logistics for Edge Dancers</p>
         <button className="login-btn" onClick={handleLogin} disabled={loading}>
           {loading ? 'Redirecting...' : 'Login with EVE Online'}
         </button>
